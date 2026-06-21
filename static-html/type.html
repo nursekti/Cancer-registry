@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cancer Registry - Cancer Type</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="type">
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="./type.html">Cancer Registry</a>
+        <nav class="nav">
+          <a class="nav__link nav__link--active" href="./type.html"
+            >Cancer Type</a
+          >
+          <a class="nav__link" href="./patients.html">Patients</a>
+          <a class="nav__link" href="./hl.html">DATA HL</a>
+        </nav>
+        <div class="topbar__right">
+          <span id="whoami" class="whoami"></span>
+          <button id="logoutBtn" class="btn btn--secondary">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <div class="page-header">
+        <div>
+          <h1 class="h1">Cancer data type</h1>
+          <p class="subtle">Pilih tipe data kanker untuk diinput/ditampilkan.</p>
+        </div>
+      </div>
+
+      <section class="stack">
+        <label class="field">
+          <span class="field__label">search....</span>
+          <input
+            id="typeSearch"
+            class="input"
+            type="text"
+            placeholder="ketik: NHL / HL / ..."
+          />
+        </label>
+
+        <div id="typeList" class="list"></div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+

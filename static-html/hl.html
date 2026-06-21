@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cancer Registry - DATA HL</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="hl">
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="./type.html">Cancer Registry</a>
+        <nav class="nav">
+          <a class="nav__link" href="./type.html">Cancer Type</a>
+          <a class="nav__link" href="./patients.html">Patients</a>
+          <a class="nav__link nav__link--active" href="./hl.html">DATA HL</a>
+        </nav>
+        <div class="topbar__right">
+          <span id="whoami" class="whoami"></span>
+          <button id="logoutBtn" class="btn btn--secondary">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <div class="page-header">
+        <div>
+          <h1 class="h1">DATA HL</h1>
+          <p class="subtle">
+            Menampilkan data dari file <b>CSV</b> dan menampilkan <b>semua kolom</b>
+            (termasuk kolom yang tidak terlihat di layar Google Sheets).
+          </p>
+          <p class="hint">
+            Jika link Google Sheet membutuhkan login, tidak bisa di-fetch dari browser.
+            Solusi: Publish to web (CSV) atau download CSV lalu upload.
+          </p>
+        </div>
+      </div>
+
+      <section class="grid-2">
+        <div class="card">
+          <div class="card__header">
+            <div class="card__title">Load dari URL (public CSV)</div>
+            <div class="hint">
+              Contoh: link “published CSV” dari Google Sheets.
+            </div>
+          </div>
+          <div class="card__content">
+            <div class="row">
+              <label class="field field--grow">
+                <span class="field__label">CSV URL</span>
+                <input
+                  id="csvUrl"
+                  class="input"
+                  type="url"
+                  placeholder="Paste Google Sheets URL (edit/export) ..."
+                />
+              </label>
+              <button id="loadCsvBtn" class="btn btn--primary">Load</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card__header">
+            <div class="card__title">Upload CSV</div>
+            <div class="hint">
+              Google Sheets: File → Download → Comma-separated values (.csv)
+            </div>
+          </div>
+          <div class="card__content">
+            <input id="csvFile" type="file" accept=".csv,text/csv" />
+          </div>
+        </div>
+      </section>
+
+      <section class="stack">
+        <div class="row row--wrap">
+          <label class="field field--grow">
+            <span class="field__label">search....</span>
+            <input
+              id="hlSearch"
+              class="input"
+              type="text"
+              placeholder="Cari apapun (nama, no ERM, regimen, dll) ..."
+            />
+          </label>
+          <button id="toggleColsBtn" class="btn btn--secondary" disabled>
+            Show all columns
+          </button>
+        </div>
+
+        <div id="hlStatus" class="hint"></div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr id="hlTheadRow"></tr>
+            </thead>
+            <tbody id="hlTbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal__card">
+        <div class="modal__header">
+          <div>
+            <div class="modal__title">Detail row (HL)</div>
+            <div class="hint">Menampilkan seluruh kolom yang ada di CSV.</div>
+          </div>
+          <button id="modalClose" class="btn btn--secondary">Close</button>
+        </div>
+        <div id="modalBody" class="modal__body"></div>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+

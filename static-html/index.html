@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cancer Registry - Login</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="login">
+    <main class="center-wrap">
+      <section class="card card--big">
+        <div class="card__header center">
+          <div class="title-1">cancer</div>
+          <div class="title-1">registry</div>
+        </div>
+
+        <div class="card__content">
+          <form id="loginForm" class="form">
+            <label class="field">
+              <span class="field__label">username</span>
+              <input
+                id="username"
+                class="input"
+                type="text"
+                autocomplete="username"
+                placeholder="masukkan username"
+                required
+              />
+            </label>
+
+            <label class="field">
+              <span class="field__label">password</span>
+              <input
+                id="password"
+                class="input"
+                type="password"
+                autocomplete="current-password"
+                placeholder="masukkan password"
+                required
+              />
+            </label>
+
+            <button class="btn btn--primary btn--lg" type="submit">
+              Login
+            </button>
+
+            <p class="hint center">
+              Jika login error (405), Anda masih memakai Go Live.
+              Untuk realtime multi-user, buka dari server: <b>http://localhost:4000</b>
+            </p>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+

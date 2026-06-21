@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cancer Registry - Patients</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="patients">
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="./type.html">Cancer Registry</a>
+        <nav class="nav">
+          <a class="nav__link" href="./type.html">Cancer Type</a>
+          <a class="nav__link nav__link--active" href="./patients.html"
+            >Patients</a
+          >
+          <a class="nav__link" href="./hl.html">DATA HL</a>
+        </nav>
+        <div class="topbar__right">
+          <span id="whoami" class="whoami"></span>
+          <button id="logoutBtn" class="btn btn--secondary">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <div class="page-header">
+        <div>
+          <h1 class="h1">List of patient data</h1>
+          <p class="subtle">
+            Search berdasarkan <b>nama</b>, <b>no ERM</b>, atau <b>NIK</b>.
+          </p>
+        </div>
+      </div>
+
+      <section class="stack">
+        <label class="field">
+          <span class="field__label">search....</span>
+          <input
+            id="patientSearch"
+            class="input"
+            type="text"
+            placeholder="contoh: Dewi / ERM-000456 / 3174..."
+          />
+        </label>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>NAMA</th>
+                <th>NO ERM</th>
+                <th>tahun</th>
+                <th>JK</th>
+                <th>USIA &gt;= 18 th</th>
+                <th>Pendidikan Terakhir</th>
+                <th>Pekerjaan</th>
+                <th>NO HP</th>
+                <th>NIK</th>
+                <th>LEADER</th>
+              </tr>
+            </thead>
+            <tbody id="patientTbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
