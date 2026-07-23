@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "warning" | "success";
 type Size = "sm" | "md" | "lg";
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -19,6 +19,10 @@ const variantClasses: Record<Variant, string> = {
   ghost: "bg-transparent text-zinc-900 hover:bg-zinc-100 active:bg-zinc-200",
   danger:
     "bg-red-600 text-white hover:bg-red-500 active:bg-red-700 disabled:bg-red-200",
+  warning:
+    "bg-amber-400 text-amber-950 hover:bg-amber-300 active:bg-amber-500 disabled:bg-amber-100",
+  success:
+    "bg-emerald-500 text-white hover:bg-emerald-400 active:bg-emerald-600 disabled:bg-emerald-200",
 };
 
 const sizeClasses: Record<Size, string> = {

@@ -12,6 +12,35 @@ function isAllowedUrl(url: URL) {
   );
 }
 
+function normalizeGoogleSheetsUrl(rawUrl: string) {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
+
+  const host = url.hostname.toLowerCase();
+  if (host !== "docs.google.com" && !host.endsWith(".docs.google.com")) {
+    return rawUrl;
+  }
+
+  const match = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
+  if (!match) {
+    return rawUrl;
+  }
+
+  const sheetId = match[1];
+  const gid = url.searchParams.get("gid") ?? url.hash.replace(/^#gid=/, "");
+  const exportUrl = new URL(`https://docs.google.com/spreadsheets/d/${sheetId}/export`);
+  exportUrl.searchParams.set("format", "csv");
+  if (gid) {
+    exportUrl.searchParams.set("gid", gid);
+  }
+
+  return exportUrl.toString();
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const rawUrl = searchParams.get("url");
@@ -43,7 +72,8 @@ export async function GET(req: Request) {
     );
   }
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
+  const resolvedUrl = normalizeGoogleSheetsUrl(url.toString());
+  const res = await fetch(resolvedUrl, { cache: "no-store" });
   if (!res.ok) {
     return NextResponse.json(
       { error: `Fetch failed (${res.status})` },

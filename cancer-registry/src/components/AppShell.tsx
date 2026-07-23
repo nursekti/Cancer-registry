@@ -9,9 +9,9 @@ import * as React from "react";
 import { useDemoUser } from "@/lib/useDemoUser";
 
 const NAV = [
-  { href: "/type", label: "Cancer Type" },
-  { href: "/patients", label: "Patients" },
-  { href: "/hl", label: "DATA HL" },
+  { href: "/type", label: "Homepage" },
+  { href: "/hl", label: "HL" },
+  { href: "/patients", label: "NHL" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -20,12 +20,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const user = useDemoUser();
 
   return (
-    <div className="min-h-screen bg-zinc-50">
-      <header className="sticky top-0 z-10 border-b border-zinc-200/70 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+    <div className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#f3f4f6_100%)]">
+      <header className="sticky top-0 z-10 border-b border-zinc-200/80 bg-white/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/type" className="text-sm font-semibold text-zinc-900">
-              Cancer Registry
+            <Link href="/type" className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-zinc-900 text-sm font-semibold text-white">
+                CR
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">
+                  Cancer Registry
+                </div>
+                <div className="text-xs text-zinc-500">Clinical data overview</div>
+              </div>
             </Link>
             <nav className="hidden items-center gap-1 md:flex">
               {NAV.map((item) => {
@@ -51,7 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-3">
             {user?.username ? (
-              <div className="hidden text-sm text-zinc-600 sm:block">
+              <div className="hidden rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-sm text-zinc-600 sm:block">
                 {user.username}
               </div>
             ) : null}
@@ -68,7 +76,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 py-8">{children}</main>
+      <main className="mx-auto w-full max-w-6xl px-4 py-6">{children}</main>
     </div>
   );
 }

@@ -1,44 +1,73 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
+import { ADDED_ROWS_STORAGE_KEYS, addRow, loadAddedRows } from "@/lib/addedRows";
+import { AddRecordModal } from "@/components/AddRecordModal";
 import { AppShell } from "@/components/AppShell";
+import { ImportCsvModal } from "@/components/ImportCsvModal";
+import { ModuleHeader } from "@/components/ModuleHeader";
 import { RequireAuth } from "@/components/RequireAuth";
+import { SearchBar } from "@/components/SearchBar";
 import { Button } from "@/components/ui/Button";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
-import { Input } from "@/components/ui/Input";
+import { cacheCsv, readCsvCache } from "@/lib/csvCache";
 import { cn } from "@/lib/cn";
 import { parseCsv } from "@/lib/csv";
+import {
+  LS_ROW_OVERRIDES,
+  isEmptyRow,
+  loadOverrides,
+  rowKey,
+} from "@/lib/rowOverrides";
+import { useLocalStorageValue } from "@/lib/useLocalStorageValue";
 
 type Row = Record<string, string>;
 
+const DEFAULT_CSV_URL =
+  "https://docs.google.com/spreadsheets/d/10tlI23LbJ4hiAZpeSygoxqtCu-XQrfxVLhgp7iqwkZc/edit?gid=188215245#gid=188215245";
+
 export default function HlPage() {
-  const [csvUrl, setCsvUrl] = React.useState("");
+  const router = useRouter();
+  const [csvUrl, setCsvUrl] = React.useState(DEFAULT_CSV_URL);
   const [headers, setHeaders] = React.useState<string[]>([]);
   const [rows, setRows] = React.useState<Row[]>([]);
   const [errors, setErrors] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [q, setQ] = React.useState("");
   const [showAllCols, setShowAllCols] = React.useState(false);
-  const [selectedRow, setSelectedRow] = React.useState<Row | null>(null);
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [addOpen, setAddOpen] = React.useState(false);
+
+  const overridesRaw = useLocalStorageValue(LS_ROW_OVERRIDES);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute when localStorage changes
+  const overrides = React.useMemo(() => loadOverrides(), [overridesRaw]);
+
+  const addedRowsRaw = useLocalStorageValue(ADDED_ROWS_STORAGE_KEYS.HL);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute when localStorage changes
+  const addedRows = React.useMemo(() => loadAddedRows("HL"), [addedRowsRaw]);
 
   const visibleHeaders = React.useMemo(() => {
     if (showAllCols) return headers;
     return headers.slice(0, 10);
   }, [headers, showAllCols]);
 
+  const baseRows = React.useMemo(() => {
+    const withoutEmpty = [...rows, ...addedRows].filter((r) => !isEmptyRow(r));
+    return withoutEmpty.filter((r) => !overrides[rowKey(r)]?.deleted);
+  }, [rows, addedRows, overrides]);
+
   const filteredRows = React.useMemo(() => {
     const qq = q.trim().toLowerCase();
-    if (!qq) return rows;
-    return rows.filter((r) => {
+    if (!qq) return baseRows;
+    return baseRows.filter((r) => {
       const hay = headers.map((h) => r[h] ?? "").join(" ").toLowerCase();
       return hay.includes(qq);
     });
-  }, [q, rows, headers]);
+  }, [q, baseRows, headers]);
 
   async function loadFromUrl(url: string) {
     setLoading(true);
     setErrors([]);
-    setSelectedRow(null);
     try {
       const res = await fetch(`/api/csv?url=${encodeURIComponent(url)}`);
       const text = await res.text();
@@ -50,6 +79,9 @@ export default function HlPage() {
       setHeaders(parsed.headers);
       setRows(parsed.rows);
       setErrors(parsed.errors);
+      // Detail pages always look up the default sheet's cache entry, so
+      // whatever dataset is currently on screen becomes that entry.
+      cacheCsv(DEFAULT_CSV_URL, parsed.headers, parsed.rows);
     } catch (e) {
       setErrors([e instanceof Error ? e.message : "Unknown error"]);
     } finally {
@@ -57,16 +89,26 @@ export default function HlPage() {
     }
   }
 
+  React.useEffect(() => {
+    const cached = readCsvCache(DEFAULT_CSV_URL);
+    if (cached) {
+      setHeaders(cached.headers);
+      setRows(cached.rows);
+      return;
+    }
+    void loadFromUrl(DEFAULT_CSV_URL);
+  }, []);
+
   async function loadFromFile(file: File) {
     setLoading(true);
     setErrors([]);
-    setSelectedRow(null);
     try {
       const text = await file.text();
       const parsed = parseCsv(text);
       setHeaders(parsed.headers);
       setRows(parsed.rows);
       setErrors(parsed.errors);
+      cacheCsv(DEFAULT_CSV_URL, parsed.headers, parsed.rows);
     } catch (e) {
       setErrors([e instanceof Error ? e.message : "Unknown error"]);
     } finally {
@@ -74,100 +116,36 @@ export default function HlPage() {
     }
   }
 
+  const summaryCards = [
+    { label: "Imported records", value: filteredRows.length },
+    { label: "Loaded columns", value: visibleHeaders.length },
+    {
+      label: "Status",
+      value: loading ? "Loading..." : errors.length ? "Needs refresh" : "Ready",
+    },
+  ];
+
   return (
     <RequireAuth>
       <AppShell>
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">DATA HL</h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Halaman ini menampilkan semua kolom yang ada di file <b>CSV</b>{" "}
-            (termasuk kolom yang tidak terlihat di layar spreadsheet).
-          </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            Catatan: link Google Sheet yang butuh login tidak bisa dibaca langsung.
-            Gunakan “Publish to web” atau download CSV lalu upload di sini.
-          </p>
+        <div className="space-y-6">
+          <ModuleHeader
+            title="HL registry data"
+            subtitle="Search, import, and manage Hodgkin Lymphoma records from the registry spreadsheet."
+            resultCount={filteredRows.length}
+            summaryCards={summaryCards}
+            onImportClick={() => setImportOpen(true)}
+            onAddClick={() => setAddOpen(true)}
+          />
         </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader className="pb-0">
-              <div className="text-sm font-semibold text-zinc-900">
-                Load dari URL (public CSV)
-              </div>
-              <div className="mt-1 text-xs text-zinc-500">
-                Contoh: link “published CSV” atau export CSV yang public.
-              </div>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="flex-1">
-                  <Input
-                    label="CSV URL"
-                    placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..."
-                    value={csvUrl}
-                    onChange={(e) => setCsvUrl(e.target.value)}
-                  />
-                </div>
-                <Button
-                  className="h-11"
-                  disabled={loading || !csvUrl.trim()}
-                  onClick={() => loadFromUrl(csvUrl.trim())}
-                >
-                  {loading ? "Loading..." : "Load"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-0">
-              <div className="text-sm font-semibold text-zinc-900">
-                Upload CSV
-              </div>
-              <div className="mt-1 text-xs text-zinc-500">
-                Download dari Google Sheets: File → Download → Comma-separated
-                values (.csv)
-              </div>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="block w-full text-sm text-zinc-700 file:mr-4 file:rounded-xl file:border-0 file:bg-zinc-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-zinc-800"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  void loadFromFile(f);
-                }}
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        {errors.length ? (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            <div className="font-semibold">Parsing / load warnings</div>
-            <ul className="mt-2 list-disc pl-5">
-              {errors.slice(0, 6).map((e, idx) => (
-                <li key={idx}>{e}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
 
         <div className="mt-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl flex-1">
-            <Input
-              label="search..."
-              placeholder="Cari apapun (nama, no ERM, regimen, dll) ..."
+            <SearchBar
               value={q}
-              onChange={(e) => setQ(e.target.value)}
-              hint={
-                headers.length
-                  ? `${filteredRows.length} / ${rows.length} rows`
-                  : "Belum ada data yang dimuat"
-              }
+              onChange={setQ}
+              totalCount={baseRows.length}
+              filteredCount={filteredRows.length}
             />
           </div>
           {headers.length ? (
@@ -187,6 +165,7 @@ export default function HlPage() {
             <table className="min-w-[900px] w-full text-sm">
               <thead className="bg-zinc-50 text-left text-xs font-semibold uppercase tracking-wide text-zinc-600">
                 <tr>
+                  <th className="px-4 py-3 whitespace-nowrap">Status</th>
                   {visibleHeaders.map((h) => (
                     <th key={h} className="px-4 py-3 whitespace-nowrap">
                       {h}
@@ -199,8 +178,17 @@ export default function HlPage() {
                   <tr
                     key={idx}
                     className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer"
-                    onClick={() => setSelectedRow(r)}
+                    onClick={() =>
+                      router.push(`/hl/${encodeURIComponent(rowKey(r))}`)
+                    }
                   >
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {overrides[rowKey(r)]?.status === "complete" ? (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                          Selesai
+                        </span>
+                      ) : null}
+                    </td>
                     {visibleHeaders.map((h) => (
                       <td
                         key={h}
@@ -219,7 +207,7 @@ export default function HlPage() {
                   <tr className="border-t border-zinc-100">
                     <td
                       className="px-4 py-10 text-center text-zinc-500"
-                      colSpan={visibleHeaders.length || 1}
+                      colSpan={visibleHeaders.length + 1}
                     >
                       Tidak ada data yang cocok.
                     </td>
@@ -243,60 +231,31 @@ export default function HlPage() {
           </p>
         ) : null}
 
-        {selectedRow ? (
-          <RowDetails
+        {importOpen ? (
+          <ImportCsvModal
+            csvUrl={csvUrl}
+            setCsvUrl={setCsvUrl}
+            loading={loading}
+            errors={errors}
+            onLoadFromUrl={loadFromUrl}
+            onLoadFromFile={loadFromFile}
+            onClose={() => setImportOpen(false)}
+          />
+        ) : null}
+
+        {addOpen ? (
+          <AddRecordModal
             headers={headers}
-            row={selectedRow}
-            onClose={() => setSelectedRow(null)}
+            onCreate={(row) => {
+              addRow("HL", row);
+              setAddOpen(false);
+              router.push(`/hl/${encodeURIComponent(rowKey(row))}`);
+            }}
+            onClose={() => setAddOpen(false)}
           />
         ) : null}
       </AppShell>
     </RequireAuth>
-  );
-}
-
-function RowDetails({
-  headers,
-  row,
-  onClose,
-}: {
-  headers: string[];
-  row: Row;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-20 bg-black/30 p-4 backdrop-blur-sm">
-      <div className="mx-auto max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-4">
-          <div>
-            <div className="text-sm font-semibold text-zinc-900">
-              Detail row (HL)
-            </div>
-            <div className="mt-0.5 text-xs text-zinc-500">
-              Menampilkan seluruh kolom yang ada di spreadsheet.
-            </div>
-          </div>
-          <Button variant="secondary" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-
-        <div className="max-h-[75vh] overflow-auto p-6">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {headers.map((h) => (
-              <div key={h} className="rounded-2xl border border-zinc-200 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  {h}
-                </div>
-                <div className="mt-1 break-words text-sm text-zinc-900">
-                  {row[h] || <span className="text-zinc-400">(empty)</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
