@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: cancer-registry-realtime
+    runtime: node
+    plan: free
+    rootDir: realtime-server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20

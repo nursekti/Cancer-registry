@@ -104,7 +104,7 @@ async function main() {
   });
 
   // Serve the static website (so everyone uses same URL).
-  const staticDir = path.join(__dirname, "..", "static-html");
+  const staticDir = path.join(__dirname, "..", "docs");
   app.use(express.static(staticDir));
 
   // Health check
