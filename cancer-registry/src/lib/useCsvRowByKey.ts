@@ -4,6 +4,7 @@ import * as React from "react";
 import { CancerTypeId, loadAddedRows } from "@/lib/addedRows";
 import { parseCsv } from "@/lib/csv";
 import { cacheCsv, readCsvCache } from "@/lib/csvCache";
+import { fetchGoogleCsv } from "@/lib/fetchGoogleCsv";
 import { rowKey } from "@/lib/rowOverrides";
 
 type Row = Record<string, string>;
@@ -31,6 +32,12 @@ export function useCsvRowByKey(
     setError(null);
 
     async function load() {
+      if (!url) {
+        // A brand-new module without an imported CSV yet — only manually
+        // added records exist.
+        if (!cancelled) setRow(findRow([], key, cancerType));
+        return;
+      }
       const cached = readCsvCache(url);
       if (cached) {
         if (!cancelled) {
@@ -40,12 +47,7 @@ export function useCsvRowByKey(
         return;
       }
       try {
-        const res = await fetch(`/api/csv?url=${encodeURIComponent(url)}`);
-        const text = await res.text();
-        if (!res.ok) {
-          if (!cancelled) setError(text || "Failed to load data");
-          return;
-        }
+        const text = await fetchGoogleCsv(url);
         const parsed = parseCsv(text);
         cacheCsv(url, parsed.headers, parsed.rows);
         if (!cancelled) {

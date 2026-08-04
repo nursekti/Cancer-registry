@@ -8,11 +8,7 @@ import { cn } from "@/lib/cn";
 import * as React from "react";
 import { useDemoUser } from "@/lib/useDemoUser";
 
-const NAV = [
-  { href: "/type", label: "Homepage" },
-  { href: "/hl", label: "HL" },
-  { href: "/patients", label: "NHL" },
-];
+const NAV = [{ href: "/type", label: "Homepage" }];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();

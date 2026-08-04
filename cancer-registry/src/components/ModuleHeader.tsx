@@ -1,20 +1,17 @@
 "use client";
 
-import * as React from "react";
 import { Button } from "@/components/ui/Button";
 
 export function ModuleHeader({
   title,
   subtitle,
   resultCount,
-  summaryCards,
   onImportClick,
   onAddClick,
 }: {
   title: string;
   subtitle: string;
   resultCount: number;
-  summaryCards: { label: string; value: React.ReactNode }[];
   onImportClick: () => void;
   onAddClick: () => void;
 }) {
@@ -36,20 +33,6 @@ export function ModuleHeader({
           </Button>
           <Button onClick={onAddClick}>+ Tambah data</Button>
         </div>
-      </div>
-
-      <div className="mt-5 grid gap-3 md:grid-cols-3">
-        {summaryCards.map((card) => (
-          <div
-            key={card.label}
-            className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"
-          >
-            <div className="text-sm text-zinc-600">{card.label}</div>
-            <div className="mt-1 text-2xl font-semibold text-zinc-900">
-              {card.value}
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );

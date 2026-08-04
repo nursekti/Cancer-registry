@@ -2,26 +2,28 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
+import { fetchImtFormulas } from "@/lib/fetchImtFormulas";
 import {
-  BaselineLabFields,
+  CheckupEntry,
   DiagnosisFields,
   DrugRow,
   ExamPhase,
   IdentityFields,
-  LabColumn,
-  LeukositFields,
+  LiniEntry,
   OutcomeFields,
+  RecordStatus,
   RiwayatFields,
   RowOverride,
-  SupportExam,
   emptyOverride,
   findExactHeaderValue,
   findHeaderValue,
   isHeaderMapped,
   loadOverride,
+  mapKesimpulanToStatus,
   markDeleted,
   mergeOverride,
   rowKey,
@@ -32,12 +34,25 @@ type Row = Record<string, string>;
 type Field = { label: string; value: string; onChange: (value: string) => void };
 
 const EXAM_TYPE_OPTIONS = ["CT scan", "Rontgen", "USG", "Bone survey"];
-const IMT_CATEGORY_OPTIONS = ["Underweight", "Normoweight", "Overweight", "Obese"];
-const PHASE_LABELS: Record<ExamPhase, string> = {
-  pre: "Pre kemo",
-  during: "During",
-  post: "Post",
-};
+const LEADER_OPTIONS = [
+  "Anak",
+  "Bedah",
+  "Bedah Mulut",
+  "Interna",
+  "Interna - Anak",
+  "Paru",
+  "THT",
+];
+const SUBTIPE_OPTIONS = [
+  "HL - Nodular Sclerosis",
+  "HL - Mixed Cellularity",
+  "HL - Lymphocyte-rich",
+  "HL - Lymphocyte-depleted",
+  "HL - nodular lymphocyte-predominant B-cell lymphoma (NLPBL)",
+  "HL - unspecified",
+];
+const ECOG_OPTIONS = ["0", "1", "2", "3", "4"];
+const STADIUM_OPTIONS = ["I", "II", "III", "IV"];
 
 // Headers already surfaced elsewhere (identity sidebar, diagnosis, history,
 // labs, or consumed by the editable form below) — excluded from the raw
@@ -47,6 +62,7 @@ const MAPPED_HEADER_NEEDLES = [
   "no erm",
   "tahun",
   "jk",
+  "jenis kelamin",
   "usia",
   "pendidikan",
   "pekerjaan",
@@ -88,6 +104,8 @@ const MAPPED_HEADER_NEEDLES = [
   "trombosit",
   "regimen kemoterapi",
   "siklus kemoterapi",
+  "bb (kg)",
+  "tb (cm)",
   "imt (kg",
   "kategori imt",
   "awal-akhir kemoterapi",
@@ -105,6 +123,55 @@ function newId(): string {
     return crypto.randomUUID();
   }
   return `id-${Math.random().toString(36).slice(2)}`;
+}
+
+function emptyCheckup(phase: ExamPhase): CheckupEntry {
+  return {
+    id: newId(),
+    phase,
+    types: [],
+    customTypes: [],
+    tanggal: "",
+    hasil: "",
+    hb: "",
+    trombosit: "",
+    leukositSebelum: "",
+    ldh: "",
+    eosinofil: "",
+    basofil: "",
+    neutrofil: "",
+    limfosit: "",
+    monosit: "",
+  };
+}
+
+function emptyLini(): LiniEntry {
+  return {
+    id: newId(),
+    siklus: "",
+    regimen: "",
+    drugs: [],
+    awalAkhirKemoterapi: "",
+    followUpTerakhir: "",
+    responKemoterapi: "",
+  };
+}
+
+const DOSE_PATTERN = /\d+(?:[.,]\d+)?\s*(?:mg|mcg|g|gr|ml|cc|iu|unit)\b/i;
+
+// Real regimen entries embed the dose in the drug text itself (e.g.
+// "Doxorubicin 35 mg selesai"). Pull the dose out into its own field and
+// leave the rest (drug name plus any trailing notes) as the name.
+function parseDrugDose(text: string): { nama: string; dosis: string } {
+  const match = text.match(DOSE_PATTERN);
+  if (!match || match.index === undefined) {
+    return { nama: text.trim(), dosis: "" };
+  }
+  const dosis = match[0].replace(/\s+/g, " ").trim();
+  const nama = (text.slice(0, match.index) + text.slice(match.index + match[0].length))
+    .replace(/\s+/g, " ")
+    .trim();
+  return { nama, dosis };
 }
 
 function splitRegimen(regimen: string): DrugRow[] {
@@ -127,45 +194,62 @@ function splitRegimen(regimen: string): DrugRow[] {
         .filter(Boolean);
 
   if (!parts.length) return [];
-  return parts.map((nama) => ({ id: newId(), nama, dosis: "" }));
+  return parts.map((part) => ({ id: newId(), ...parseDrugDose(part) }));
+}
+
+// The sheet's Siklus column is a free-text blurb ("LINI I (16 Siklus),"
+// or "...Lini 1 Siklus 12 dengan..."). Pull out just the cycle count so the
+// field reads as a plain "Siklus N".
+function parseSiklusCount(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const after = trimmed.match(/siklus\s*(\d+)/i);
+  if (after) return `Siklus ${after[1]}`;
+  const before = trimmed.match(/(\d+)\s*siklus/i);
+  if (before) return `Siklus ${before[1]}`;
+  return trimmed;
 }
 
 function buildInitialOverride(row: Row, headers: string[]): RowOverride {
   const base = emptyOverride();
 
-  const penunjangDone = findHeaderValue(row, headers, "pemeriksaan penunjang")
-    .trim()
-    .toLowerCase();
-  const exams: SupportExam[] =
-    penunjangDone === "ya"
-      ? [
-          {
-            id: newId(),
-            phase: "pre",
-            types: [],
-            otherType: "",
-            tanggal: "",
-            hasil: "",
-          },
-        ]
-      : [];
-
-  const hb = findHeaderValue(row, headers, "hb sebelum");
-  const trombosit = findHeaderValue(row, headers, "trombosit");
-  const labs: LabColumn[] =
-    hb || trombosit
-      ? [{ id: newId(), phase: "pre", hb, trombosit }]
-      : [];
+  // Everything the spreadsheet has today (single Hb/Trombosit values, a
+  // single baseline lab panel, a single leukosit differential) represents one
+  // visit — bundled into the first Pre-kemo entry for now.
+  const initialCheckup: CheckupEntry = {
+    ...emptyCheckup("pre"),
+    hb: findHeaderValue(row, headers, "hb sebelum"),
+    trombosit: findHeaderValue(row, headers, "trombosit"),
+    leukositSebelum: findHeaderValue(row, headers, "leukosit sebelum"),
+    ldh: findHeaderValue(row, headers, "ldh"),
+    eosinofil: findHeaderValue(row, headers, "eosinofil"),
+    basofil: findHeaderValue(row, headers, "basofil"),
+    neutrofil: findHeaderValue(row, headers, "neutrofil"),
+    limfosit: findHeaderValue(row, headers, "limfosit"),
+    monosit: findHeaderValue(row, headers, "monosit"),
+  };
 
   const regimen = findHeaderValue(row, headers, "regimen kemoterapi");
+
+  // The sheet's regimen/cycle/outcome columns represent one line of therapy
+  // today — bundled into the first Lini entry for now.
+  const initialLini: LiniEntry = {
+    ...emptyLini(),
+    siklus: parseSiklusCount(findHeaderValue(row, headers, "siklus kemoterapi")),
+    regimen,
+    drugs: splitRegimen(regimen),
+    awalAkhirKemoterapi: findHeaderValue(row, headers, "awal-akhir kemoterapi"),
+    followUpTerakhir: findHeaderValue(row, headers, "follow up terakhir"),
+    responKemoterapi: findHeaderValue(row, headers, "respon kemoterapi"),
+  };
 
   return {
     ...base,
     identity: {
-      nama: row["NAMA"] ?? "",
+      nama: findExactHeaderValue(row, headers, "nama") || row["NAMA"] || "",
       noErm: row["NO ERM"] ?? "",
       tahun: findHeaderValue(row, headers, "tahun"),
-      jk: findHeaderValue(row, headers, "jk"),
+      jk: findHeaderValue(row, headers, "jenis kelamin") || findHeaderValue(row, headers, "jk"),
       usia: findHeaderValue(row, headers, "usia"),
       pendidikan: findHeaderValue(row, headers, "pendidikan"),
       pekerjaan: findHeaderValue(row, headers, "pekerjaan"),
@@ -192,57 +276,40 @@ function buildInitialOverride(row: Row, headers: string[]): RowOverride {
       ppok: findHeaderValue(row, headers, "riwayat ppok"),
       hiv: findHeaderValue(row, headers, "riwayat hiv"),
       doublePrimary: findHeaderValue(row, headers, "double primary"),
-      jumlahKomorbiditas: findHeaderValue(row, headers, "jumlah komorbiditas"),
-    },
-    baselineLab: {
-      leukositSebelum: findHeaderValue(row, headers, "leukosit sebelum"),
-      anemia: findHeaderValue(row, headers, "anemia"),
-      anc: findHeaderValue(row, headers, "anc ("),
-      alc: findHeaderValue(row, headers, "alc ("),
-      nlr: findHeaderValue(row, headers, "nlr"),
-      lmr: findHeaderValue(row, headers, "lmr"),
-      plr: findHeaderValue(row, headers, "plr"),
-      ldh: findHeaderValue(row, headers, "ldh"),
-    },
-    leukosit: {
-      eosinofil: findHeaderValue(row, headers, "eosinofil"),
-      basofil: findHeaderValue(row, headers, "basofil"),
-      neutrofil: findHeaderValue(row, headers, "neutrofil"),
-      limfosit: findHeaderValue(row, headers, "limfosit"),
-      monosit: findHeaderValue(row, headers, "monosit"),
     },
     outcome: {
-      awalAkhirKemoterapi: findHeaderValue(row, headers, "awal-akhir kemoterapi"),
-      followUpTerakhir: findHeaderValue(row, headers, "follow up terakhir"),
-      responKemoterapi: findHeaderValue(row, headers, "respon kemoterapi"),
       statusRemission: findHeaderValue(row, headers, "remission"),
       lostToFollowUp: findHeaderValue(row, headers, "lost to follow up"),
       timeToEvent: findHeaderValue(row, headers, "time to event"),
-      kesimpulan: findHeaderValue(row, headers, "kesimpulan"),
       dx: findExactHeaderValue(row, headers, "dx"),
     },
-    exams,
-    labs,
-    siklus: findHeaderValue(row, headers, "siklus kemoterapi"),
-    imt: findHeaderValue(row, headers, "imt (kg"),
-    imtKategori: findHeaderValue(row, headers, "kategori imt"),
-    regimen,
-    drugs: splitRegimen(regimen),
+    checkups: [initialCheckup],
+    liniList: [initialLini],
+    // Present as real columns only in the NHL sheet; the HL sheet only has
+    // the computed IMT, so bb/tb stay blank there until the async
+    // formula-derived lookup (see the effect in PatientDetailView) fills them.
+    bb: findHeaderValue(row, headers, "bb (kg)"),
+    tb: findHeaderValue(row, headers, "tb (cm)"),
+    status: mapKesimpulanToStatus(findHeaderValue(row, headers, "kesimpulan")),
   };
 }
 
 export function PatientDetailView({
   cancerType,
+  title,
   backHref,
   headers,
   row,
+  csvUrl,
   onDeleted,
   onSaved,
 }: {
-  cancerType: "HL" | "NHL";
+  cancerType: string;
+  title: string;
   backHref: string;
   headers: string[];
   row: Row;
+  csvUrl?: string;
   onDeleted: (key: string) => void;
   onSaved: (key: string, override: RowOverride) => void;
 }) {
@@ -252,6 +319,26 @@ export function PatientDetailView({
     const stored = loadOverride(key);
     return stored ? mergeOverride(seeded, stored) : seeded;
   });
+
+  // The HL sheet only stores a computed IMT value, not BB/TB — reverse-parse
+  // them from the cell's literal formula (e.g. "=51/(1,7)^2") via the
+  // Sheets API, since that's the only place those numbers exist.
+  React.useEffect(() => {
+    if (cancerType !== "HL" || !csvUrl) return;
+    let cancelled = false;
+    fetchImtFormulas(csvUrl)
+      .then((map) => {
+        if (cancelled || !map) return;
+        const noErm = row["NO ERM"]?.trim();
+        const derived = noErm ? map[noErm] : undefined;
+        if (!derived) return;
+        setState((s) => (s.bb || s.tb ? s : { ...s, bb: derived.bb, tb: derived.tbCm }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [cancerType, csvUrl, row, key]);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const [savedMessage, setSavedMessage] = React.useState<string | null>(null);
   const [deleted, setDeleted] = React.useState(false);
@@ -259,9 +346,6 @@ export function PatientDetailView({
   const [preEditSnapshot, setPreEditSnapshot] = React.useState<RowOverride | null>(
     null,
   );
-
-  const title =
-    cancerType === "NHL" ? "NON HODGKIN LYMPHOMA" : "HODGKIN LYMPHOMA";
 
   function persist(next: RowOverride, message: string) {
     saveOverride(key, next);
@@ -289,10 +373,6 @@ export function PatientDetailView({
     persist(state, "Tersimpan.");
   }
 
-  function handleComplete() {
-    persist({ ...state, status: "complete" }, "Ditandai selesai.");
-  }
-
   function handleDelete() {
     markDeleted(key);
     onDeleted(key);
@@ -311,94 +391,117 @@ export function PatientDetailView({
     setState((s) => ({ ...s, riwayat: { ...s.riwayat, ...patch } }));
   }
 
-  function updateBaselineLab(patch: Partial<BaselineLabFields>) {
-    setState((s) => ({ ...s, baselineLab: { ...s.baselineLab, ...patch } }));
-  }
-
-  function updateLeukosit(patch: Partial<LeukositFields>) {
-    setState((s) => ({ ...s, leukosit: { ...s.leukosit, ...patch } }));
-  }
-
   function updateOutcome(patch: Partial<OutcomeFields>) {
     setState((s) => ({ ...s, outcome: { ...s.outcome, ...patch } }));
   }
 
-  function addExam() {
+  function addCheckup(phase: ExamPhase) {
+    setState((s) => ({ ...s, checkups: [...s.checkups, emptyCheckup(phase)] }));
+  }
+
+  function updateCheckup(id: string, patch: Partial<CheckupEntry>) {
     setState((s) => ({
       ...s,
-      exams: [
-        ...s.exams,
-        {
-          id: newId(),
-          phase: "pre",
-          types: [],
-          otherType: "",
-          tanggal: "",
-          hasil: "",
-        },
-      ],
+      checkups: s.checkups.map((c) => (c.id === id ? { ...c, ...patch } : c)),
     }));
   }
 
-  function updateExam(id: string, patch: Partial<SupportExam>) {
+  function removeCheckup(id: string) {
     setState((s) => ({
       ...s,
-      exams: s.exams.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+      checkups: s.checkups.filter((c) => c.id !== id),
     }));
   }
 
-  function removeExam(id: string) {
-    setState((s) => ({ ...s, exams: s.exams.filter((e) => e.id !== id) }));
-  }
-
-  function toggleExamType(id: string, type: string) {
+  function toggleCheckupType(id: string, type: string) {
     setState((s) => ({
       ...s,
-      exams: s.exams.map((e) => {
-        if (e.id !== id) return e;
-        const has = e.types.includes(type);
+      checkups: s.checkups.map((c) => {
+        if (c.id !== id) return c;
+        const has = c.types.includes(type);
         return {
-          ...e,
-          types: has ? e.types.filter((t) => t !== type) : [...e.types, type],
+          ...c,
+          types: has ? c.types.filter((t) => t !== type) : [...c.types, type],
         };
       }),
     }));
   }
 
-  function addLabColumn() {
+  function addCustomType(id: string) {
     setState((s) => ({
       ...s,
-      labs: [...s.labs, { id: newId(), phase: "during", hb: "", trombosit: "" }],
+      checkups: s.checkups.map((c) =>
+        c.id === id ? { ...c, customTypes: [...c.customTypes, ""] } : c,
+      ),
     }));
   }
 
-  function updateLabColumn(id: string, patch: Partial<LabColumn>) {
+  function updateCustomType(id: string, index: number, value: string) {
     setState((s) => ({
       ...s,
-      labs: s.labs.map((l) => (l.id === id ? { ...l, ...patch } : l)),
+      checkups: s.checkups.map((c) =>
+        c.id === id
+          ? { ...c, customTypes: c.customTypes.map((t, i) => (i === index ? value : t)) }
+          : c,
+      ),
     }));
   }
 
-  function removeLabColumn(id: string) {
-    setState((s) => ({ ...s, labs: s.labs.filter((l) => l.id !== id) }));
-  }
-
-  function addDrug() {
+  function removeCustomType(id: string, index: number) {
     setState((s) => ({
       ...s,
-      drugs: [...s.drugs, { id: newId(), nama: "", dosis: "" }],
+      checkups: s.checkups.map((c) =>
+        c.id === id
+          ? { ...c, customTypes: c.customTypes.filter((_, i) => i !== index) }
+          : c,
+      ),
     }));
   }
 
-  function updateDrug(id: string, patch: Partial<DrugRow>) {
+  function addLini() {
+    setState((s) => ({ ...s, liniList: [...s.liniList, emptyLini()] }));
+  }
+
+  function updateLini(id: string, patch: Partial<LiniEntry>) {
     setState((s) => ({
       ...s,
-      drugs: s.drugs.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+      liniList: s.liniList.map((l) => (l.id === id ? { ...l, ...patch } : l)),
     }));
   }
 
-  function removeDrug(id: string) {
-    setState((s) => ({ ...s, drugs: s.drugs.filter((d) => d.id !== id) }));
+  function removeLini(id: string) {
+    setState((s) => ({ ...s, liniList: s.liniList.filter((l) => l.id !== id) }));
+  }
+
+  function addDrug(liniId: string) {
+    setState((s) => ({
+      ...s,
+      liniList: s.liniList.map((l) =>
+        l.id === liniId
+          ? { ...l, drugs: [...l.drugs, { id: newId(), nama: "", dosis: "" }] }
+          : l,
+      ),
+    }));
+  }
+
+  function updateDrug(liniId: string, drugId: string, patch: Partial<DrugRow>) {
+    setState((s) => ({
+      ...s,
+      liniList: s.liniList.map((l) =>
+        l.id === liniId
+          ? { ...l, drugs: l.drugs.map((d) => (d.id === drugId ? { ...d, ...patch } : d)) }
+          : l,
+      ),
+    }));
+  }
+
+  function removeDrug(liniId: string, drugId: string) {
+    setState((s) => ({
+      ...s,
+      liniList: s.liniList.map((l) =>
+        l.id === liniId ? { ...l, drugs: l.drugs.filter((d) => d.id !== drugId) } : l,
+      ),
+    }));
   }
 
   const identityFields: Field[] = [
@@ -421,46 +524,48 @@ export function PatientDetailView({
     { label: "NIK", value: state.identity.nik, onChange: (v) => updateIdentity({ nik: v }) },
   ];
 
-  const diagnosisFields: Field[] = [
-    { label: "Leader", value: state.diagnosis.leader, onChange: (v) => updateDiagnosis({ leader: v }) },
-    {
-      label: "Tegak diagnosis",
-      value: state.diagnosis.tegakDiagnosis,
-      onChange: (v) => updateDiagnosis({ tegakDiagnosis: v }),
-    },
-    {
-      label: "Lokasi PA",
-      value: state.diagnosis.lokasiPa,
-      onChange: (v) => updateDiagnosis({ lokasiPa: v }),
-    },
-    {
-      label: "Hasil PA",
-      value: state.diagnosis.hasilPa,
-      onChange: (v) => updateDiagnosis({ hasilPa: v }),
-    },
-    {
-      label: "Subtipe (imunohistokimia)",
-      value: state.diagnosis.subtipeImunohistokimia,
-      onChange: (v) => updateDiagnosis({ subtipeImunohistokimia: v }),
-    },
-    {
-      label: "Subtipe",
-      value: state.diagnosis.subtipe,
-      onChange: (v) => updateDiagnosis({ subtipe: v }),
-    },
-    {
-      label: "ECOG score",
-      value: state.diagnosis.ecogScore,
-      onChange: (v) => updateDiagnosis({ ecogScore: v }),
-    },
-    {
-      label: "Stadium (Ann-Arbor)",
-      value: state.diagnosis.stadium,
-      onChange: (v) => updateDiagnosis({ stadium: v }),
-    },
-  ];
+  const leaderField: Field = {
+    label: "Leader",
+    value: state.diagnosis.leader,
+    onChange: (v) => updateDiagnosis({ leader: v }),
+  };
+  const tegakDiagnosisField: Field = {
+    label: "Tegak diagnosis",
+    value: state.diagnosis.tegakDiagnosis,
+    onChange: (v) => updateDiagnosis({ tegakDiagnosis: v }),
+  };
+  const lokasiPaField: Field = {
+    label: "Lokasi PA",
+    value: state.diagnosis.lokasiPa,
+    onChange: (v) => updateDiagnosis({ lokasiPa: v }),
+  };
+  const hasilPaField: Field = {
+    label: "Hasil PA",
+    value: state.diagnosis.hasilPa,
+    onChange: (v) => updateDiagnosis({ hasilPa: v }),
+  };
+  const ihkField: Field = {
+    label: "Hasil imunohistokimia (IHK)",
+    value: state.diagnosis.subtipeImunohistokimia,
+    onChange: (v) => updateDiagnosis({ subtipeImunohistokimia: v }),
+  };
+  const subtipeField: Field = {
+    label: "Subtipe",
+    value: state.diagnosis.subtipe,
+    onChange: (v) => updateDiagnosis({ subtipe: v }),
+  };
+  const ecogField: Field = {
+    label: "ECOG score",
+    value: state.diagnosis.ecogScore,
+    onChange: (v) => updateDiagnosis({ ecogScore: v }),
+  };
+  const stadiumField: Field = {
+    label: "Stadium",
+    value: state.diagnosis.stadium,
+    onChange: (v) => updateDiagnosis({ stadium: v }),
+  };
 
-  const historyItems: Field[] = [
+  const comorbidityItems: Field[] = [
     {
       label: "Kanker keluarga",
       value: state.riwayat.kankerKeluarga,
@@ -481,60 +586,341 @@ export function PatientDetailView({
     { label: "CKD", value: state.riwayat.ckd, onChange: (v) => updateRiwayat({ ckd: v }) },
     { label: "PPOK", value: state.riwayat.ppok, onChange: (v) => updateRiwayat({ ppok: v }) },
     { label: "HIV", value: state.riwayat.hiv, onChange: (v) => updateRiwayat({ hiv: v }) },
-    {
-      label: "Double primary tumours",
-      value: state.riwayat.doublePrimary,
-      onChange: (v) => updateRiwayat({ doublePrimary: v }),
-    },
   ];
 
-  const baselineLabFields: Field[] = [
-    {
-      label: "Leukosit sebelum kemoterapi",
-      value: state.baselineLab.leukositSebelum,
-      onChange: (v) => updateBaselineLab({ leukositSebelum: v }),
-    },
-    { label: "Anemia", value: state.baselineLab.anemia, onChange: (v) => updateBaselineLab({ anemia: v }) },
-    {
-      label: "ANC (Absolute Neutrophil Count)",
-      value: state.baselineLab.anc,
-      onChange: (v) => updateBaselineLab({ anc: v }),
-    },
-    {
-      label: "ALC (Absolute Lymphocyte Count)",
-      value: state.baselineLab.alc,
-      onChange: (v) => updateBaselineLab({ alc: v }),
-    },
-    { label: "NLR", value: state.baselineLab.nlr, onChange: (v) => updateBaselineLab({ nlr: v }) },
-    { label: "LMR", value: state.baselineLab.lmr, onChange: (v) => updateBaselineLab({ lmr: v }) },
-    { label: "PLR", value: state.baselineLab.plr, onChange: (v) => updateBaselineLab({ plr: v }) },
-    { label: "LDH", value: state.baselineLab.ldh, onChange: (v) => updateBaselineLab({ ldh: v }) },
-  ];
+  const doublePrimaryField: Field = {
+    label: "Double primary tumours",
+    value: state.riwayat.doublePrimary,
+    onChange: (v) => updateRiwayat({ doublePrimary: v }),
+  };
 
-  const leukositItems: Field[] = [
-    { label: "Eosinofil", value: state.leukosit.eosinofil, onChange: (v) => updateLeukosit({ eosinofil: v }) },
-    { label: "Basofil", value: state.leukosit.basofil, onChange: (v) => updateLeukosit({ basofil: v }) },
-    { label: "Neutrofil", value: state.leukosit.neutrofil, onChange: (v) => updateLeukosit({ neutrofil: v }) },
-    { label: "Limfosit", value: state.leukosit.limfosit, onChange: (v) => updateLeukosit({ limfosit: v }) },
-    { label: "Monosit", value: state.leukosit.monosit, onChange: (v) => updateLeukosit({ monosit: v }) },
-  ];
+  const jumlahKomorbiditas = comorbidityItems.filter(
+    (item) => item.value.trim().toLowerCase() === "ya",
+  ).length;
+
+  function baselineLabFieldsFor(entry: CheckupEntry): Field[] {
+    return [
+      { label: "HB", value: entry.hb, onChange: (v) => updateCheckup(entry.id, { hb: v }) },
+      {
+        label: "Trombosit",
+        value: entry.trombosit,
+        onChange: (v) => updateCheckup(entry.id, { trombosit: v }),
+      },
+      {
+        label: "Leukosit sebelum kemoterapi",
+        value: entry.leukositSebelum,
+        onChange: (v) => updateCheckup(entry.id, { leukositSebelum: v }),
+      },
+      { label: "LDH", value: entry.ldh, onChange: (v) => updateCheckup(entry.id, { ldh: v }) },
+    ];
+  }
+
+  function computedLabRowsFor(entry: CheckupEntry): { label: string; value: string }[] {
+    const leukosit = parseDecimal(entry.leukositSebelum);
+    const neutrofil = parseDecimal(entry.neutrofil);
+    const limfosit = parseDecimal(entry.limfosit);
+    const monosit = parseDecimal(entry.monosit);
+    const trombosit = parseDecimal(entry.trombosit);
+
+    const anc = leukosit !== null && neutrofil !== null ? leukosit * neutrofil : null;
+    const alc = limfosit !== null && leukosit !== null ? limfosit * leukosit : null;
+    const nlr = safeDivide(neutrofil, limfosit);
+    const lmr = safeDivide(limfosit, monosit);
+    const plr = safeDivide(trombosit, limfosit);
+
+    return [
+      { label: "ANC (Absolute Neutrophil Count)", value: formatComputed(anc) },
+      { label: "ALC (Absolute Lymphocyte Count)", value: formatComputed(alc) },
+      { label: "NLR", value: formatComputed(nlr) },
+      { label: "LMR", value: formatComputed(lmr) },
+      { label: "PLR", value: formatComputed(plr) },
+    ];
+  }
+
+  function leukositFieldsFor(entry: CheckupEntry): Field[] {
+    return [
+      {
+        label: "Eosinofil",
+        value: entry.eosinofil,
+        onChange: (v) => updateCheckup(entry.id, { eosinofil: v }),
+      },
+      {
+        label: "Basofil",
+        value: entry.basofil,
+        onChange: (v) => updateCheckup(entry.id, { basofil: v }),
+      },
+      {
+        label: "Neutrofil",
+        value: entry.neutrofil,
+        onChange: (v) => updateCheckup(entry.id, { neutrofil: v }),
+      },
+      {
+        label: "Limfosit",
+        value: entry.limfosit,
+        onChange: (v) => updateCheckup(entry.id, { limfosit: v }),
+      },
+      {
+        label: "Monosit",
+        value: entry.monosit,
+        onChange: (v) => updateCheckup(entry.id, { monosit: v }),
+      },
+    ];
+  }
+
+  function renderCheckupCard(entry: CheckupEntry, label: string) {
+    return (
+      <div key={entry.id} className="space-y-5 rounded-2xl border border-zinc-200 p-4">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-zinc-800">{label}</div>
+          {isEditing ? (
+            <button
+              type="button"
+              onClick={() => removeCheckup(entry.id)}
+              className="text-xs font-medium text-red-600 hover:text-red-500"
+            >
+              Hapus
+            </button>
+          ) : null}
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Pemeriksaan
+          </div>
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+            <DiagnosisField
+              field={{
+                label: "Tanggal periksa",
+                value: entry.tanggal,
+                onChange: (v) => updateCheckup(entry.id, { tanggal: v }),
+              }}
+              isEditing={isEditing}
+              kind="date"
+            />
+            <DiagnosisField
+              field={{
+                label: "Hasil",
+                value: entry.hasil,
+                onChange: (v) => updateCheckup(entry.id, { hasil: v }),
+              }}
+              isEditing={isEditing}
+              kind="text"
+            />
+          </div>
+          {isEditing ? (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              {EXAM_TYPE_OPTIONS.map((type) => (
+                <label key={type} className="flex items-center gap-1.5 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={entry.types.includes(type)}
+                    onChange={() => toggleCheckupType(entry.id, type)}
+                    className="h-4 w-4 rounded border-zinc-300"
+                  />
+                  {type}
+                </label>
+              ))}
+              {entry.customTypes.map((custom, idx) => (
+                <div key={idx} className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    placeholder="lainnya, dll"
+                    value={custom}
+                    onChange={(e) => updateCustomType(entry.id, idx, e.target.value)}
+                    className="h-8 w-32 rounded-lg bg-white px-2.5 text-xs text-zinc-900 ring-1 ring-inset ring-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeCustomType(entry.id, idx)}
+                    className="text-xs font-medium text-red-600 hover:text-red-500"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => addCustomType(entry.id)}
+                className="text-xs font-medium text-zinc-600 hover:text-zinc-800"
+              >
+                + Tambah lainnya
+              </button>
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[...entry.types, ...entry.customTypes.filter(Boolean)].length ? (
+                [...entry.types, ...entry.customTypes.filter(Boolean)].map((type, idx) => (
+                  <span
+                    key={idx}
+                    className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700"
+                  >
+                    {type}
+                  </span>
+                ))
+              ) : (
+                <span className="text-sm text-zinc-400">-</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Laboratorium
+          </div>
+          <EditableGrid fields={baselineLabFieldsFor(entry)} isEditing={isEditing} />
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Jumlah leukosit
+          </div>
+          <EditableLeukositTable items={leukositFieldsFor(entry)} isEditing={isEditing} />
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            ANC / ALC / NLR / LMR / PLR
+          </div>
+          <ComputedValueTable items={computedLabRowsFor(entry)} />
+        </div>
+      </div>
+    );
+  }
+
+  function renderPhaseSection(phase: ExamPhase, phaseLabel: string) {
+    const entries = state.checkups.filter((c) => c.phase === phase);
+    return (
+      <div className="space-y-4">
+        {entries.map((entry, idx) => renderCheckupCard(entry, `${phaseLabel} ${idx + 1}`))}
+        {entries.length === 0 ? (
+          <div className="text-sm text-zinc-400">Belum ada data.</div>
+        ) : null}
+        {isEditing ? (
+          <Button variant="secondary" size="sm" onClick={() => addCheckup(phase)}>
+            + Tambah {phaseLabel.toLowerCase()}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderLiniCard(entry: LiniEntry, idx: number) {
+    return (
+      <div key={entry.id} className="space-y-4 rounded-2xl border border-zinc-200 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="text-sm font-semibold text-zinc-800">Lini {idx + 1}</div>
+            <div className="w-40">
+              <DiagnosisField
+                field={{
+                  label: "Siklus",
+                  value: entry.siklus,
+                  onChange: (v) => updateLini(entry.id, { siklus: v }),
+                }}
+                isEditing={isEditing}
+                kind="text"
+              />
+            </div>
+          </div>
+          {isEditing ? (
+            <button
+              type="button"
+              onClick={() => removeLini(entry.id)}
+              className="text-xs font-medium text-red-600 hover:text-red-500"
+            >
+              Hapus
+            </button>
+          ) : null}
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-zinc-800">Regimen kemoterapi</label>
+          {entry.drugs.map((drug) =>
+            isEditing ? (
+              <div key={drug.id} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="nama obat"
+                  value={drug.nama}
+                  onChange={(e) => updateDrug(entry.id, drug.id, { nama: e.target.value })}
+                  className={cn(fieldClass, "min-w-0 flex-1")}
+                />
+                <div className="w-28 shrink-0">
+                  <input
+                    type="text"
+                    placeholder="dosis"
+                    value={drug.dosis}
+                    onChange={(e) => updateDrug(entry.id, drug.id, { dosis: e.target.value })}
+                    className={fieldClass}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeDrug(entry.id, drug.id)}
+                  className="text-xs font-medium text-red-600 hover:text-red-500"
+                >
+                  Hapus
+                </button>
+              </div>
+            ) : (
+              <div
+                key={drug.id}
+                className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3.5 py-2.5"
+              >
+                <div className="min-w-0 flex-1 break-words text-sm font-medium text-zinc-900">
+                  {drug.nama || <span className="text-zinc-400">-</span>}
+                </div>
+                <div className="w-28 shrink-0 text-sm text-zinc-700">
+                  {drug.dosis || <span className="text-zinc-400">-</span>}
+                </div>
+              </div>
+            ),
+          )}
+          {entry.drugs.length === 0 ? (
+            <div className="text-sm text-zinc-400">Belum ada data.</div>
+          ) : null}
+          {isEditing ? (
+            <Button variant="secondary" size="sm" onClick={() => addDrug(entry.id)}>
+              + Tambah obat
+            </Button>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <DiagnosisField
+            field={{
+              label: "Awal-akhir kemoterapi",
+              value: entry.awalAkhirKemoterapi,
+              onChange: (v) => updateLini(entry.id, { awalAkhirKemoterapi: v }),
+            }}
+            isEditing={isEditing}
+            kind="text"
+          />
+          <DiagnosisField
+            field={{
+              label: "Follow up terakhir",
+              value: entry.followUpTerakhir,
+              onChange: (v) => updateLini(entry.id, { followUpTerakhir: v }),
+            }}
+            isEditing={isEditing}
+            kind="text"
+          />
+          <DiagnosisField
+            field={{
+              label: "Respon kemoterapi",
+              value: entry.responKemoterapi,
+              onChange: (v) => updateLini(entry.id, { responKemoterapi: v }),
+            }}
+            isEditing={isEditing}
+            kind="text"
+          />
+        </div>
+      </div>
+    );
+  }
 
   const outcomeFields: Field[] = [
-    {
-      label: "Awal-akhir kemoterapi",
-      value: state.outcome.awalAkhirKemoterapi,
-      onChange: (v) => updateOutcome({ awalAkhirKemoterapi: v }),
-    },
-    {
-      label: "Follow up terakhir",
-      value: state.outcome.followUpTerakhir,
-      onChange: (v) => updateOutcome({ followUpTerakhir: v }),
-    },
-    {
-      label: "Respon kemoterapi",
-      value: state.outcome.responKemoterapi,
-      onChange: (v) => updateOutcome({ responKemoterapi: v }),
-    },
     {
       label: "Status remission/refrakter/relapse",
       value: state.outcome.statusRemission,
@@ -549,11 +935,6 @@ export function PatientDetailView({
       label: "Time to event (bulan)",
       value: state.outcome.timeToEvent,
       onChange: (v) => updateOutcome({ timeToEvent: v }),
-    },
-    {
-      label: "Kesimpulan",
-      value: state.outcome.kesimpulan,
-      onChange: (v) => updateOutcome({ kesimpulan: v }),
     },
     { label: "DX", value: state.outcome.dx, onChange: (v) => updateOutcome({ dx: v }) },
   ];
@@ -590,12 +971,26 @@ export function PatientDetailView({
         </Link>
         <div className="flex items-center gap-2 text-xl font-semibold text-zinc-900">
           {title}
-          {state.status === "complete" ? (
-            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-              Selesai
-            </span>
-          ) : null}
         </div>
+        {isEditing ? (
+          <select
+            value={state.status ?? ""}
+            onChange={(e) =>
+              setState((s) => ({
+                ...s,
+                status: (e.target.value || undefined) as RecordStatus | undefined,
+              }))
+            }
+            className="h-9 rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+          >
+            <option value="">Status: -</option>
+            <option value="include">Include</option>
+            <option value="exclude">Exclude</option>
+            <option value="tidak_lengkap">Tidak Lengkap</option>
+          </select>
+        ) : (
+          <StatusBadge status={state.status} />
+        )}
         {!isEditing && savedMessage ? (
           <span className="text-xs text-zinc-500">{savedMessage}</span>
         ) : null}
@@ -637,10 +1032,50 @@ export function PatientDetailView({
         </Card>
 
         <div className="space-y-8">
-          <Card>
-            <CardContent className="space-y-8 p-6">
+          <div className="space-y-6">
               <Section title="Diagnosis">
-                <EditableGrid fields={diagnosisFields} isEditing={isEditing} />
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4">
+                    <DiagnosisField
+                      field={leaderField}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={LEADER_OPTIONS}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <DiagnosisField
+                      field={tegakDiagnosisField}
+                      isEditing={isEditing}
+                      kind="date"
+                    />
+                    <DiagnosisField field={lokasiPaField} isEditing={isEditing} kind="text" />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <DiagnosisField field={hasilPaField} isEditing={isEditing} kind="text" />
+                    <DiagnosisField field={ihkField} isEditing={isEditing} kind="text" />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <DiagnosisField
+                      field={subtipeField}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={SUBTIPE_OPTIONS}
+                    />
+                    <DiagnosisField
+                      field={ecogField}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={ECOG_OPTIONS}
+                    />
+                    <DiagnosisField
+                      field={stadiumField}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={STADIUM_OPTIONS}
+                    />
+                  </div>
+                </div>
               </Section>
 
               <Section title="Riwayat penyakit & komorbiditas">
@@ -648,327 +1083,102 @@ export function PatientDetailView({
                   <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                     Jumlah komorbiditas
                   </span>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={state.riwayat.jumlahKomorbiditas}
-                      onChange={(e) =>
-                        updateRiwayat({ jumlahKomorbiditas: e.target.value })
-                      }
-                      className="h-8 w-20 rounded-lg bg-white px-2.5 text-xs text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
-                    />
-                  ) : (
-                    <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
-                      {state.riwayat.jumlahKomorbiditas || "-"}
-                    </span>
-                  )}
+                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
+                    {jumlahKomorbiditas}
+                  </span>
                 </div>
-                <EditableHistoryTable items={historyItems} isEditing={isEditing} />
+                <EditableHistoryTable items={comorbidityItems} isEditing={isEditing} />
+
+                <div className="mt-5 border-t border-zinc-100 pt-5">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Double primary tumours
+                  </div>
+                  <EditableHistoryTable items={[doublePrimaryField]} isEditing={isEditing} />
+                </div>
               </Section>
 
               <Section title="Pemeriksaan penunjang">
-                <div className="space-y-4">
-                  {state.exams.map((exam) => (
-                    <div
-                      key={exam.id}
-                      className="rounded-2xl border border-zinc-200 p-4"
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <PhaseSelect
-                          value={exam.phase}
-                          onChange={(phase) => updateExam(exam.id, { phase })}
-                          disabled={!isEditing}
-                        />
-                        <input
-                          type="date"
-                          value={exam.tanggal}
-                          disabled={!isEditing}
-                          onChange={(e) =>
-                            updateExam(exam.id, { tanggal: e.target.value })
-                          }
-                          className="h-11 rounded-xl bg-white px-3.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-500"
-                        />
-                        <input
-                          type="text"
-                          placeholder="hasil"
-                          value={exam.hasil}
-                          disabled={!isEditing}
-                          onChange={(e) =>
-                            updateExam(exam.id, { hasil: e.target.value })
-                          }
-                          className="h-11 flex-1 rounded-xl bg-white px-3.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-500"
-                        />
-                        {isEditing ? (
-                          <button
-                            type="button"
-                            onClick={() => removeExam(exam.id)}
-                            className="text-xs font-medium text-red-600 hover:text-red-500"
-                          >
-                            Hapus
-                          </button>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-3">
-                        {EXAM_TYPE_OPTIONS.map((type) => (
-                          <label
-                            key={type}
-                            className="flex items-center gap-1.5 text-sm text-zinc-700"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={exam.types.includes(type)}
-                              disabled={!isEditing}
-                              onChange={() => toggleExamType(exam.id, type)}
-                              className="h-4 w-4 rounded border-zinc-300"
-                            />
-                            {type}
-                          </label>
-                        ))}
-                        <input
-                          type="text"
-                          placeholder="lainnya, dll"
-                          value={exam.otherType}
-                          disabled={!isEditing}
-                          onChange={(e) =>
-                            updateExam(exam.id, { otherType: e.target.value })
-                          }
-                          className="h-8 w-32 rounded-lg bg-white px-2.5 text-xs text-zinc-900 ring-1 ring-inset ring-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-500"
-                        />
-                      </div>
+                <div className="space-y-6">
+                  <div>
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Pre-kemo
                     </div>
-                  ))}
-
-                  {isEditing ? (
-                    <div className="flex items-center gap-2">
-                      <Button variant="secondary" size="sm" onClick={addExam}>
-                        + Tambah pemeriksaan
-                      </Button>
-                      <span className="text-xs text-red-500">dapat lebih dari 1</span>
-                    </div>
-                  ) : null}
-                </div>
-              </Section>
-
-              <Section title="Laboratorium">
-                <div className="overflow-x-auto rounded-2xl border border-zinc-200">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-zinc-50 text-left text-xs font-semibold uppercase tracking-wide text-zinc-600">
-                        <th className="px-4 py-3">Parameter</th>
-                        {state.labs.map((lab) => (
-                          <th key={lab.id} className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <PhaseSelect
-                                value={lab.phase}
-                                onChange={(phase) =>
-                                  updateLabColumn(lab.id, { phase })
-                                }
-                                compact
-                                disabled={!isEditing}
-                              />
-                              {isEditing ? (
-                                <button
-                                  type="button"
-                                  onClick={() => removeLabColumn(lab.id)}
-                                  className="text-red-500 hover:text-red-400"
-                                  aria-label="Hapus kolom"
-                                >
-                                  &times;
-                                </button>
-                              ) : null}
-                            </div>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-t border-zinc-100">
-                        <td className="px-4 py-3 font-medium text-zinc-700">HB</td>
-                        {state.labs.map((lab) => (
-                          <td key={lab.id} className="px-4 py-3">
-                            <input
-                              type="text"
-                              value={lab.hb}
-                              disabled={!isEditing}
-                              onChange={(e) =>
-                                updateLabColumn(lab.id, { hb: e.target.value })
-                              }
-                              className="h-9 w-24 rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-500"
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                      <tr className="border-t border-zinc-100">
-                        <td className="px-4 py-3 font-medium text-zinc-700">
-                          Trombosit
-                        </td>
-                        {state.labs.map((lab) => (
-                          <td key={lab.id} className="px-4 py-3">
-                            <input
-                              type="text"
-                              value={lab.trombosit}
-                              disabled={!isEditing}
-                              onChange={(e) =>
-                                updateLabColumn(lab.id, {
-                                  trombosit: e.target.value,
-                                })
-                              }
-                              className="h-9 w-24 rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-500"
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                {isEditing ? (
-                  <div className="mt-3 flex items-center gap-2">
-                    <Button variant="secondary" size="sm" onClick={addLabColumn}>
-                      + Tambah kolom
-                    </Button>
-                    <span className="text-xs text-red-500">dapat lebih dari 1</span>
+                    {renderPhaseSection("pre", "Pre-kemo")}
                   </div>
-                ) : null}
+                  <div>
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      During kemo
+                    </div>
+                    {renderPhaseSection("during", "During kemo")}
+                  </div>
+                  <div>
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Post kemo
+                    </div>
+                    {renderPhaseSection("post", "Post kemo")}
+                  </div>
+                </div>
               </Section>
 
-              <Section title="Hasil laboratorium awal">
-                <EditableGrid fields={baselineLabFields} isEditing={isEditing} />
-              </Section>
-
-              <Section title="Hitung jenis leukosit">
-                <EditableLeukositTable items={leukositItems} isEditing={isEditing} />
+              <Section title="Status BMI">
+                <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <DiagnosisField
+                    field={{
+                      label: "BB (kg)",
+                      value: state.bb,
+                      onChange: (v) => setState((s) => ({ ...s, bb: v })),
+                    }}
+                    isEditing={isEditing}
+                    kind="text"
+                  />
+                  <DiagnosisField
+                    field={{
+                      label: "TB (cm)",
+                      value: state.tb,
+                      onChange: (v) => setState((s) => ({ ...s, tb: v })),
+                    }}
+                    isEditing={isEditing}
+                    kind="text"
+                  />
+                  <DiagnosisField
+                    field={{
+                      label: "IMT",
+                      value: computeImt(state.bb, state.tb),
+                      onChange: () => undefined,
+                    }}
+                    isEditing={false}
+                    kind="text"
+                  />
+                  <DiagnosisField
+                    field={{
+                      label: "Kategori IMT",
+                      value: categorizeImt(computeImt(state.bb, state.tb)),
+                      onChange: () => undefined,
+                    }}
+                    isEditing={false}
+                    kind="text"
+                  />
+                  <DiagnosisField
+                    field={{
+                      label: "BSA",
+                      value: state.bsa,
+                      onChange: (v) => setState((s) => ({ ...s, bsa: v })),
+                    }}
+                    isEditing={isEditing}
+                    kind="text"
+                  />
+                </div>
               </Section>
 
               <Section title="Siklus kemoterapi">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <LabeledField label="Lini">
-                    <input
-                      type="text"
-                      value={state.lini}
-                      onChange={(e) =>
-                        setState((s) => ({ ...s, lini: e.target.value }))
-                      }
-                      disabled={!isEditing}
-                      className={fieldClass}
-                    />
-                  </LabeledField>
-                  <LabeledField label="Siklus">
-                    <input
-                      type="text"
-                      value={state.siklus}
-                      onChange={(e) =>
-                        setState((s) => ({ ...s, siklus: e.target.value }))
-                      }
-                      disabled={!isEditing}
-                      className={fieldClass}
-                    />
-                  </LabeledField>
-                  <LabeledField label="BB (kg)">
-                    <input
-                      type="text"
-                      value={state.bb}
-                      onChange={(e) =>
-                        setState((s) => ({ ...s, bb: e.target.value }))
-                      }
-                      disabled={!isEditing}
-                      className={fieldClass}
-                    />
-                  </LabeledField>
-                  <LabeledField label="TB (cm)">
-                    <input
-                      type="text"
-                      value={state.tb}
-                      onChange={(e) =>
-                        setState((s) => ({ ...s, tb: e.target.value }))
-                      }
-                      disabled={!isEditing}
-                      className={fieldClass}
-                    />
-                  </LabeledField>
-                  <LabeledField label="IMT">
-                    <input
-                      type="text"
-                      value={state.imt}
-                      onChange={(e) =>
-                        setState((s) => ({ ...s, imt: e.target.value }))
-                      }
-                      disabled={!isEditing}
-                      className={fieldClass}
-                    />
-                  </LabeledField>
-                  <LabeledField label="Kategori IMT">
-                    <select
-                      value={state.imtKategori}
-                      onChange={(e) =>
-                        setState((s) => ({ ...s, imtKategori: e.target.value }))
-                      }
-                      disabled={!isEditing}
-                      className={fieldClass}
-                    >
-                      <option value="">-</option>
-                      {IMT_CATEGORY_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                  </LabeledField>
-                  <LabeledField label="BSA">
-                    <input
-                      type="text"
-                      value={state.bsa}
-                      onChange={(e) =>
-                        setState((s) => ({ ...s, bsa: e.target.value }))
-                      }
-                      disabled={!isEditing}
-                      className={fieldClass}
-                    />
-                  </LabeledField>
-                </div>
-
-                <div className="mt-4 space-y-2">
-                  <label className="text-sm font-medium text-zinc-800">
-                    Regimen kemoterapi
-                  </label>
-                  {state.drugs.map((drug) => (
-                    <div key={drug.id} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="nama obat"
-                        value={drug.nama}
-                        disabled={!isEditing}
-                        onChange={(e) =>
-                          updateDrug(drug.id, { nama: e.target.value })
-                        }
-                        className={cn(fieldClass, "min-w-0 flex-1")}
-                      />
-                      <div className="w-28 shrink-0">
-                        <input
-                          type="text"
-                          placeholder="dosis"
-                          value={drug.dosis}
-                          disabled={!isEditing}
-                          onChange={(e) =>
-                            updateDrug(drug.id, { dosis: e.target.value })
-                          }
-                          className={fieldClass}
-                        />
-                      </div>
-                      {isEditing ? (
-                        <button
-                          type="button"
-                          onClick={() => removeDrug(drug.id)}
-                          className="text-xs font-medium text-red-600 hover:text-red-500"
-                        >
-                          Hapus
-                        </button>
-                      ) : null}
-                    </div>
-                  ))}
+                <div className="space-y-4">
+                  {state.liniList.map((lini, idx) => renderLiniCard(lini, idx))}
+                  {state.liniList.length === 0 ? (
+                    <div className="text-sm text-zinc-400">Belum ada data.</div>
+                  ) : null}
                   {isEditing ? (
-                    <Button variant="secondary" size="sm" onClick={addDrug}>
-                      + Tambah obat
+                    <Button variant="secondary" size="sm" onClick={addLini}>
+                      + Tambah lini
                     </Button>
                   ) : null}
                 </div>
@@ -979,26 +1189,29 @@ export function PatientDetailView({
               </Section>
 
               {rawDataHeaders.length ? (
-                <details className="rounded-2xl border border-zinc-200 p-4">
-                  <summary className="cursor-pointer text-sm font-semibold text-zinc-700">
-                    Data mentah dari spreadsheet
-                  </summary>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {rawDataHeaders.map((h) => (
-                      <div key={h} className="rounded-xl border border-zinc-200 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          {h}
-                        </div>
-                        <div className="mt-1 break-words text-sm text-zinc-900">
-                          {row[h] || <span className="text-zinc-400">(empty)</span>}
-                        </div>
+                <Card>
+                  <CardContent className="p-6">
+                    <details>
+                      <summary className="cursor-pointer text-sm font-semibold text-zinc-700">
+                        Data mentah dari spreadsheet
+                      </summary>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {rawDataHeaders.map((h) => (
+                          <div key={h} className="rounded-xl border border-zinc-200 p-3">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                              {h}
+                            </div>
+                            <div className="mt-1 break-words text-sm text-zinc-900">
+                              {row[h] || <span className="text-zinc-400">(empty)</span>}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </details>
+                    </details>
+                  </CardContent>
+                </Card>
               ) : null}
-            </CardContent>
-          </Card>
+          </div>
 
           {isEditing ? (
             <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white/95 px-6 py-4 shadow-[0_20px_70px_-30px_rgba(0,0,0,0.35)] backdrop-blur">
@@ -1036,9 +1249,6 @@ export function PatientDetailView({
                 <Button variant="warning" onClick={handleUpdate}>
                   Update
                 </Button>
-                <Button variant="success" onClick={handleComplete}>
-                  Complete
-                </Button>
               </div>
             </div>
           ) : null}
@@ -1059,57 +1269,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function LabeledField({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-medium text-zinc-800">{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function PhaseSelect({
-  value,
-  onChange,
-  compact,
-  disabled,
-}: {
-  value: ExamPhase;
-  onChange: (phase: ExamPhase) => void;
-  compact?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value as ExamPhase)}
-      className={cn(
-        "rounded-xl bg-white text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-500",
-        compact ? "h-9 px-2.5" : "h-11 px-3.5",
-      )}
-    >
-      {(Object.keys(PHASE_LABELS) as ExamPhase[]).map((phase) => (
-        <option key={phase} value={phase}>
-          {PHASE_LABELS[phase]}
-        </option>
-      ))}
-    </select>
+    <Card>
+      <CardContent className="p-6">
+        <div className="mb-5 flex items-center gap-2.5 border-b border-zinc-100 pb-4">
+          <div className="h-5 w-1 rounded-full bg-zinc-900" />
+          <h2 className="text-base font-semibold text-zinc-900">{title}</h2>
+        </div>
+        {children}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1145,11 +1313,58 @@ function EditableGrid({
   );
 }
 
+function DiagnosisField({
+  field,
+  isEditing,
+  kind,
+  options,
+}: {
+  field: Field;
+  isEditing: boolean;
+  kind: "text" | "date" | "select";
+  options?: string[];
+}) {
+  return (
+    <div className="min-w-0">
+      <label className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+        {field.label}
+      </label>
+      {isEditing ? (
+        kind === "select" ? (
+          <select
+            value={field.value}
+            onChange={(e) => field.onChange(e.target.value)}
+            className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+          >
+            <option value="">-</option>
+            {(options ?? []).map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type={kind === "date" ? "date" : "text"}
+            value={field.value}
+            onChange={(e) => field.onChange(e.target.value)}
+            className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+          />
+        )
+      ) : (
+        <div className="break-words text-sm font-medium text-zinc-900">
+          {field.value || <span className="text-zinc-400">-</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BooleanBadge({ value }: { value: string }) {
   const v = value.trim().toLowerCase();
   if (v === "ya") {
     return (
-      <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">
+      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
         Ya
       </span>
     );
@@ -1209,6 +1424,44 @@ function parsePercent(value: string): number | null {
   return Math.min(100, Math.max(0, n));
 }
 
+function parseDecimal(value: string): number | null {
+  const cleaned = value.trim().replace(",", ".");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isNaN(n) ? null : n;
+}
+
+function safeDivide(a: number | null, b: number | null): number | null {
+  if (a === null || b === null || b === 0) return null;
+  return a / b;
+}
+
+function formatComputed(n: number | null): string {
+  if (n === null) return "-";
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toString().replace(".", ",");
+}
+
+// IMT = BB(kg) / TB(m)^2 — TB is stored in cm, so convert to meters first.
+function computeImt(bb: string, tb: string): string {
+  const bbKg = parseDecimal(bb);
+  const tbCm = parseDecimal(tb);
+  if (bbKg === null || tbCm === null || tbCm === 0) return "";
+  const tbM = tbCm / 100;
+  return formatComputed(bbKg / (tbM * tbM));
+}
+
+// BMI classification per WHO Asia-Pacific cutoffs: <18.5 underweight,
+// 18.5–24.9 normoweight, 25–29.9 overweight, >=30 obese.
+function categorizeImt(rawImt: string): string {
+  const n = parseDecimal(rawImt);
+  if (n === null) return "";
+  if (n < 18.5) return "Underweight";
+  if (n < 25) return "Normoweight";
+  if (n < 30) return "Overweight";
+  return "Obese";
+}
+
 function EditableLeukositTable({
   items,
   isEditing,
@@ -1258,6 +1511,25 @@ function EditableLeukositTable({
               </tr>
             );
           })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ComputedValueTable({ items }: { items: { label: string; value: string }[] }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-zinc-200">
+      <table className="w-full text-sm">
+        <tbody>
+          {items.map((item, idx) => (
+            <tr key={item.label} className={idx > 0 ? "border-t border-zinc-100" : ""}>
+              <td className="px-4 py-3 text-zinc-700">{item.label}</td>
+              <td className="px-4 py-3 text-right font-medium text-zinc-900">
+                {item.value === "-" ? <span className="text-zinc-400">-</span> : item.value}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

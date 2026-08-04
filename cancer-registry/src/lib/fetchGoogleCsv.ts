@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-
-export const runtime = "nodejs";
+// Public "anyone with the link" Google Sheets/Drive CSV export URLs send
+// `access-control-allow-origin: *`, so this can fetch directly from the
+// browser — no server proxy needed.
 
 function isAllowedUrl(url: URL) {
   const host = url.hostname.toLowerCase();
@@ -41,59 +41,34 @@ function normalizeGoogleSheetsUrl(rawUrl: string) {
   return exportUrl.toString();
 }
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const rawUrl = searchParams.get("url");
-  if (!rawUrl) {
-    return NextResponse.json(
-      { error: "Missing 'url' query param" },
-      { status: 400 },
-    );
-  }
-
+export async function fetchGoogleCsv(rawUrl: string): Promise<string> {
   let url: URL;
   try {
     url = new URL(rawUrl);
   } catch {
-    return NextResponse.json({ error: "Invalid url" }, { status: 400 });
+    throw new Error("Invalid url");
   }
 
   if (!["http:", "https:"].includes(url.protocol)) {
-    return NextResponse.json({ error: "Invalid url protocol" }, { status: 400 });
+    throw new Error("Invalid url protocol");
   }
 
   if (!isAllowedUrl(url)) {
-    return NextResponse.json(
-      {
-        error:
-          "URL host not allowed. Please use a public Google Sheets/Drive CSV link.",
-      },
-      { status: 400 },
+    throw new Error(
+      "URL host not allowed. Please use a public Google Sheets/Drive CSV link.",
     );
   }
 
   const resolvedUrl = normalizeGoogleSheetsUrl(url.toString());
   const res = await fetch(resolvedUrl, { cache: "no-store" });
   if (!res.ok) {
-    return NextResponse.json(
-      { error: `Fetch failed (${res.status})` },
-      { status: 400 },
-    );
+    throw new Error(`Fetch failed (${res.status})`);
   }
 
   const text = await res.text();
   if (text.length > 5_000_000) {
-    return NextResponse.json(
-      { error: "File too large (max 5MB)" },
-      { status: 413 },
-    );
+    throw new Error("File too large (max 5MB)");
   }
 
-  return new NextResponse(text, {
-    headers: {
-      "content-type": res.headers.get("content-type") ?? "text/plain; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
+  return text;
 }
-

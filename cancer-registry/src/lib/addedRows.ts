@@ -4,14 +4,14 @@ import {
 } from "@/lib/storage";
 
 type Row = Record<string, string>;
-export type CancerTypeId = "HL" | "NHL";
+export type CancerTypeId = string;
 
-function storageKey(cancerType: CancerTypeId): string {
+export function addedRowsStorageKey(cancerType: CancerTypeId): string {
   return `cr_added_rows_${cancerType}`;
 }
 
 export function loadAddedRows(cancerType: CancerTypeId): Row[] {
-  const raw = getLocalStorageItem(storageKey(cancerType));
+  const raw = getLocalStorageItem(addedRowsStorageKey(cancerType));
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -23,11 +23,6 @@ export function loadAddedRows(cancerType: CancerTypeId): Row[] {
 
 export function addRow(cancerType: CancerTypeId, row: Row): void {
   const rows = loadAddedRows(cancerType);
-  rows.push(row);
-  setLocalStorageItem(storageKey(cancerType), JSON.stringify(rows));
+  rows.unshift(row);
+  setLocalStorageItem(addedRowsStorageKey(cancerType), JSON.stringify(rows));
 }
-
-export const ADDED_ROWS_STORAGE_KEYS: Record<CancerTypeId, string> = {
-  HL: storageKey("HL"),
-  NHL: storageKey("NHL"),
-};
