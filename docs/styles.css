@@ -1,12 +1,16 @@
 :root {
   --bg: #fafafa;
   --card: #ffffff;
-  --text: #0a0a0a;
+  --text: #182338;
   --muted: #6b7280;
   --ring: rgba(0, 0, 0, 0.08);
   --shadow: 0 20px 70px -30px rgba(0, 0, 0, 0.25);
   --radius: 22px;
   --radius-lg: 28px;
+  --primary: #304770;
+  --primary-light: #3f5f93;
+  --primary-dark: #21304c;
+  --accent: #45aaff;
 }
 
 * {
@@ -132,8 +136,8 @@ a {
 }
 
 .input:focus {
-  border-color: rgba(0, 0, 0, 0.35);
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(69, 170, 255, 0.2);
 }
 
 .btn {
@@ -157,12 +161,12 @@ a {
 }
 
 .btn--primary {
-  background: #0a0a0a;
+  background: var(--primary);
   color: #fff;
 }
 
 .btn--primary:hover {
-  background: #222;
+  background: var(--primary-light);
 }
 
 .btn--secondary {
@@ -217,7 +221,7 @@ a {
 }
 
 .nav__link--active {
-  background: #0a0a0a;
+  background: var(--primary);
   color: #fff;
 }
 
@@ -264,7 +268,7 @@ a {
 }
 
 .list-item--active {
-  border-color: rgba(0, 0, 0, 0.45);
+  border-color: var(--primary);
   box-shadow: var(--shadow);
 }
 

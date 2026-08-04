@@ -118,7 +118,7 @@ export function AddRecordModal({
             <select
               value={jk}
               onChange={(e) => setJk(e.target.value)}
-              className="h-11 w-full rounded-xl bg-white px-3.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+              className="h-11 w-full rounded-xl bg-white px-3.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
             >
               <option value="">-</option>
               <option value="Laki - Laki">Laki - Laki</option>

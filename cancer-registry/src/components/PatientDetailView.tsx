@@ -727,7 +727,7 @@ export function PatientDetailView({
                     placeholder="lainnya, dll"
                     value={custom}
                     onChange={(e) => updateCustomType(entry.id, idx, e.target.value)}
-                    className="h-8 w-32 rounded-lg bg-white px-2.5 text-xs text-zinc-900 ring-1 ring-inset ring-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                    className="h-8 w-32 rounded-lg bg-white px-2.5 text-xs text-zinc-900 ring-1 ring-inset ring-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-accent-500"
                   />
                   <button
                     type="button"
@@ -952,7 +952,7 @@ export function PatientDetailView({
         </div>
         <Link
           href={backHref}
-          className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800"
+          className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-primary-700 px-4 text-sm font-medium text-white hover:bg-primary-600"
         >
           &larr; Kembali ke daftar
         </Link>
@@ -981,7 +981,7 @@ export function PatientDetailView({
                 status: (e.target.value || undefined) as RecordStatus | undefined,
               }))
             }
-            className="h-9 rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+            className="h-9 rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
           >
             <option value="">Status: -</option>
             <option value="include">Include</option>
@@ -1018,7 +1018,7 @@ export function PatientDetailView({
                       type="text"
                       value={field.value}
                       onChange={(e) => field.onChange(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                      className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
                     />
                   ) : (
                     <div className="break-words text-sm font-medium text-zinc-900">
@@ -1259,7 +1259,7 @@ export function PatientDetailView({
 }
 
 const fieldClass =
-  "h-11 w-full rounded-xl bg-white px-3.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-500";
+  "h-11 w-full rounded-xl bg-white px-3.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-accent-500 disabled:bg-zinc-50 disabled:text-zinc-500";
 
 function Section({
   title,
@@ -1272,7 +1272,7 @@ function Section({
     <Card>
       <CardContent className="p-6">
         <div className="mb-5 flex items-center gap-2.5 border-b border-zinc-100 pb-4">
-          <div className="h-5 w-1 rounded-full bg-zinc-900" />
+          <div className="h-5 w-1 rounded-full bg-primary-700" />
           <h2 className="text-base font-semibold text-zinc-900">{title}</h2>
         </div>
         {children}
@@ -1300,7 +1300,7 @@ function EditableGrid({
               type="text"
               value={field.value}
               onChange={(e) => field.onChange(e.target.value)}
-              className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+              className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
             />
           ) : (
             <div className="break-words text-sm font-medium text-zinc-900">
@@ -1334,7 +1334,7 @@ function DiagnosisField({
           <select
             value={field.value}
             onChange={(e) => field.onChange(e.target.value)}
-            className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+            className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
           >
             <option value="">-</option>
             {(options ?? []).map((opt) => (
@@ -1348,7 +1348,7 @@ function DiagnosisField({
             type={kind === "date" ? "date" : "text"}
             value={field.value}
             onChange={(e) => field.onChange(e.target.value)}
-            className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+            className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
           />
         )
       ) : (
@@ -1398,7 +1398,7 @@ function EditableHistoryTable({
                   <select
                     value={item.value}
                     onChange={(e) => item.onChange(e.target.value)}
-                    className="h-8 rounded-lg bg-white px-2 text-xs text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                    className="h-8 rounded-lg bg-white px-2 text-xs text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
                   >
                     <option value="">-</option>
                     <option value="Ya">Ya</option>
@@ -1491,7 +1491,7 @@ function EditableLeukositTable({
                         type="text"
                         value={item.value}
                         onChange={(e) => item.onChange(e.target.value)}
-                        className="h-8 w-20 shrink-0 rounded-lg bg-white px-2 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                        className="h-8 w-20 shrink-0 rounded-lg bg-white px-2 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
                       />
                     ) : (
                       <span className="w-14 shrink-0 font-medium text-zinc-900">

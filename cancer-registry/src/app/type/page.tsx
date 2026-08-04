@@ -159,7 +159,7 @@ function ModuleCard({
     "flex items-center justify-between gap-4 rounded-3xl bg-white p-6 ring-1 shadow-[0_20px_70px_-30px_rgba(0,0,0,0.25)] transition-all duration-200 ease-out",
     manageMode
       ? selected
-        ? "ring-2 ring-zinc-900"
+        ? "ring-2 ring-primary-700"
         : "ring-1 ring-zinc-100 hover:ring-zinc-300"
       : "ring-1 ring-zinc-100 hover:-translate-y-1 hover:shadow-[0_25px_80px_-25px_rgba(0,0,0,0.35)] hover:ring-zinc-200",
   );
@@ -179,7 +179,7 @@ function ModuleCard({
           className={cn(
             "flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-1 ring-inset transition-colors",
             selected
-              ? "bg-zinc-900 text-white ring-zinc-900"
+              ? "bg-primary-700 text-white ring-primary-700"
               : "text-transparent ring-zinc-300",
           )}
         >

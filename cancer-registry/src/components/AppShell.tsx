@@ -21,7 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <Link href="/type" className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-zinc-900 text-sm font-semibold text-white">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary-700 text-sm font-semibold text-white">
                 CR
               </div>
               <div>
@@ -42,7 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     className={cn(
                       "rounded-xl px-3 py-1.5 text-sm font-medium transition-colors",
                       active
-                        ? "bg-zinc-900 text-white"
+                        ? "bg-primary-700 text-white"
                         : "text-zinc-700 hover:bg-zinc-100",
                     )}
                   >

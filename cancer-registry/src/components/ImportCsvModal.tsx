@@ -84,7 +84,7 @@ export function ImportCsvModal({
               <input
                 type="file"
                 accept=".csv,text/csv"
-                className="block w-full text-sm text-zinc-700 file:mr-4 file:rounded-xl file:border-0 file:bg-zinc-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-zinc-800"
+                className="block w-full text-sm text-zinc-700 file:mr-4 file:rounded-xl file:border-0 file:bg-primary-700 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-primary-600"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (!f) return;

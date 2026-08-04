@@ -2,7 +2,7 @@
 
 :root {
   --background: #f8fafc;
-  --foreground: #0f172a;
+  --foreground: #182338;
 }
 
 @theme inline {
@@ -10,6 +10,31 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Navy — primary brand color, matched to rsmoewardi.com */
+  --color-primary-50: #eef2f9;
+  --color-primary-100: #d7e0ef;
+  --color-primary-200: #b0c1df;
+  --color-primary-300: #89a3cf;
+  --color-primary-400: #5f81b8;
+  --color-primary-500: #3f5f93;
+  --color-primary-600: #304770;
+  --color-primary-700: #263a5c;
+  --color-primary-800: #21304c;
+  --color-primary-900: #182338;
+  --color-primary-950: #101627;
+
+  /* Sky blue — accent color, matched to rsmoewardi.com */
+  --color-accent-50: #eaf6ff;
+  --color-accent-100: #d2ecff;
+  --color-accent-200: #a9dcff;
+  --color-accent-300: #7ecbff;
+  --color-accent-400: #67b8fc;
+  --color-accent-500: #4eabf9;
+  --color-accent-600: #45aaff;
+  --color-accent-700: #2f8fe0;
+  --color-accent-800: #2571b8;
+  --color-accent-900: #1c5a92;
 }
 
 * {
@@ -29,6 +54,6 @@ body {
 }
 
 ::selection {
-  background: rgba(16, 185, 129, 0.25);
-  color: #0f172a;
+  background: rgba(69, 170, 255, 0.25);
+  color: #182338;
 }

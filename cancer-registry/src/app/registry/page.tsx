@@ -194,7 +194,7 @@ function RegistryListPageInner() {
             </div>
             <Link
               href="/type"
-              className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800"
+              className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-primary-700 px-4 text-sm font-medium text-white hover:bg-primary-600"
             >
               &larr; Kembali ke homepage
             </Link>
