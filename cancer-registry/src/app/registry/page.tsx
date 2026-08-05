@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { addRow, addedRowsStorageKey, loadAddedRows } from "@/lib/addedRows";
 import { AddRecordModal } from "@/components/AddRecordModal";
 import { AppShell } from "@/components/AppShell";
+import { FilterModal } from "@/components/FilterModal";
 import { ImportCsvModal } from "@/components/ImportCsvModal";
 import { ModuleHeader } from "@/components/ModuleHeader";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -30,6 +31,15 @@ import {
   mapKesimpulanToStatus,
   rowKey,
 } from "@/lib/rowOverrides";
+import {
+  ColumnType,
+  FilterCombinator,
+  FilterRule,
+  activeRules,
+  inferColumnType,
+  matchesRules,
+  operatorLabel,
+} from "@/lib/columnFilters";
 import { useLocalStorageValue } from "@/lib/useLocalStorageValue";
 
 type Row = Record<string, string>;
@@ -72,6 +82,9 @@ function RegistryListPageInner() {
   const [loading, setLoading] = React.useState(false);
   const [q, setQ] = React.useState("");
   const [showAllCols, setShowAllCols] = React.useState(false);
+  const [filterRules, setFilterRules] = React.useState<FilterRule[]>([]);
+  const [filterCombinator, setFilterCombinator] = React.useState<FilterCombinator>("AND");
+  const [filterOpen, setFilterOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
   const [csvUrlDraft, setCsvUrlDraft] = React.useState("");
@@ -153,20 +166,36 @@ function RegistryListPageInner() {
     return withoutEmpty.filter((r) => !overrides[rowKey(r)]?.deleted);
   }, [rows, addedRows, overrides]);
 
+  const columnTypes = React.useMemo<Record<string, ColumnType>>(() => {
+    const map: Record<string, ColumnType> = {};
+    for (const h of headers) {
+      map[h] = inferColumnType(baseRows.map((r) => r[h] ?? ""));
+    }
+    return map;
+  }, [headers, baseRows]);
+
+  const visibleFilterRules = React.useMemo(() => activeRules(filterRules), [filterRules]);
+
   const filteredRows = React.useMemo<Row[]>(() => {
     const qq = q.trim().toLowerCase();
-    if (!qq) return baseRows;
     return baseRows.filter((r) => {
-      const hay = [
-        findExactHeaderValue(r, headers, "nama"),
-        r["NO ERM"],
-        r["NIK"],
-      ]
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(qq);
+      if (qq) {
+        const hay = [
+          findExactHeaderValue(r, headers, "nama"),
+          r["NO ERM"],
+          r["NIK"],
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(qq)) return false;
+      }
+      return matchesRules(r, filterRules, filterCombinator);
     });
-  }, [q, baseRows, headers]);
+  }, [q, baseRows, headers, filterRules, filterCombinator]);
+
+  function removeFilterRule(id: string) {
+    setFilterRules((prev) => prev.filter((r) => r.id !== id));
+  }
 
   function detailHref(key: string) {
     return `/registry/detail?typeId=${encodeURIComponent(typeId)}&key=${encodeURIComponent(key)}`;
@@ -232,14 +261,53 @@ function RegistryListPageInner() {
                 filteredCount={filteredRows.length}
               />
             </div>
-            {headers.length ? (
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setFilterOpen(true)}
+                disabled={!headers.length}
+              >
+                Filter{visibleFilterRules.length ? ` (${visibleFilterRules.length})` : ""}
+              </Button>
+              {headers.length ? (
                 <Button variant="secondary" onClick={() => setShowAllCols((v) => !v)}>
                   {showAllCols ? "Show fewer columns" : "Show all columns"}
                 </Button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
+
+          {visibleFilterRules.length ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {visibleFilterRules.map((rule, idx) => (
+                <React.Fragment key={rule.id}>
+                  {idx > 0 ? (
+                    <span className="text-xs font-semibold uppercase text-zinc-400">
+                      {filterCombinator}
+                    </span>
+                  ) : null}
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-50 px-3 py-1 text-xs font-medium text-primary-700 ring-1 ring-inset ring-accent-200">
+                    {rule.column} {operatorLabel(rule).toLowerCase()} &ldquo;{rule.value}&rdquo;
+                    <button
+                      type="button"
+                      onClick={() => removeFilterRule(rule.id)}
+                      className="text-primary-700/60 hover:text-primary-700"
+                      aria-label={`Remove filter on ${rule.column}`}
+                    >
+                      &times;
+                    </button>
+                  </span>
+                </React.Fragment>
+              ))}
+              <button
+                type="button"
+                onClick={() => setFilterRules([])}
+                className="text-xs font-medium text-zinc-500 hover:text-zinc-700"
+              >
+                Clear all filters
+              </button>
+            </div>
+          ) : null}
 
           <div className="overflow-hidden rounded-[24px] border border-zinc-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
@@ -321,6 +389,20 @@ function RegistryListPageInner() {
             onLoadFromUrl={loadFromUrl}
             onLoadFromFile={loadFromFile}
             onClose={() => setImportOpen(false)}
+          />
+        ) : null}
+
+        {filterOpen ? (
+          <FilterModal
+            headers={headers}
+            columnTypes={columnTypes}
+            rules={filterRules}
+            combinator={filterCombinator}
+            onApply={(rules, combinator) => {
+              setFilterRules(rules);
+              setFilterCombinator(combinator);
+            }}
+            onClose={() => setFilterOpen(false)}
           />
         ) : null}
 
