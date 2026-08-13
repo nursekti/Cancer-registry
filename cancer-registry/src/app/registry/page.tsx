@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { addRow, addedRowsStorageKey, loadAddedRows } from "@/lib/addedRows";
 import { AddRecordModal } from "@/components/AddRecordModal";
 import { AppShell } from "@/components/AppShell";
+import { ExportMenu } from "@/components/ExportMenu";
 import { FilterModal } from "@/components/FilterModal";
 import { ImportCsvModal } from "@/components/ImportCsvModal";
 import { ModuleHeader } from "@/components/ModuleHeader";
@@ -24,6 +25,7 @@ import { parseCsv } from "@/lib/csv";
 import { fetchGoogleCsv } from "@/lib/fetchGoogleCsv";
 import {
   LS_ROW_OVERRIDES,
+  RECORD_STATUS_META,
   findExactHeaderValue,
   findHeaderValue,
   isEmptyRow,
@@ -31,6 +33,7 @@ import {
   mapKesimpulanToStatus,
   rowKey,
 } from "@/lib/rowOverrides";
+import { exportToCsv, exportToPdf, exportToXlsx } from "@/lib/exportTable";
 import {
   ColumnType,
   FilterCombinator,
@@ -201,6 +204,35 @@ function RegistryListPageInner() {
     return `/registry/detail?typeId=${encodeURIComponent(typeId)}&key=${encodeURIComponent(key)}`;
   }
 
+  const exportHeaders = React.useMemo(() => ["Status", ...visibleHeaders], [visibleHeaders]);
+
+  const exportRows = React.useMemo<Row[]>(() => {
+    return filteredRows.map((r) => {
+      const status =
+        overrides[rowKey(r)]?.status ??
+        mapKesimpulanToStatus(findHeaderValue(r, headers, "kesimpulan"));
+      const out: Row = { Status: status ? RECORD_STATUS_META[status].label : "" };
+      for (const h of visibleHeaders) out[h] = r[h] ?? "";
+      return out;
+    });
+  }, [filteredRows, overrides, headers, visibleHeaders]);
+
+  function handleExport(format: "csv" | "xlsx" | "pdf") {
+    const base = (config?.label ?? typeId).replace(/\s+/g, "-");
+    if (format === "csv") {
+      exportToCsv(exportHeaders, exportRows, `${base}-registry.csv`);
+    } else if (format === "xlsx") {
+      void exportToXlsx(exportHeaders, exportRows, `${base}-registry.xlsx`);
+    } else {
+      void exportToPdf(
+        exportHeaders,
+        exportRows,
+        `${base}-registry.pdf`,
+        `${config?.label ?? typeId} registry data`,
+      );
+    }
+  }
+
   if (config === undefined) {
     return (
       <RequireAuth>
@@ -274,6 +306,7 @@ function RegistryListPageInner() {
                   {showAllCols ? "Show fewer columns" : "Show all columns"}
                 </Button>
               ) : null}
+              <ExportMenu disabled={!filteredRows.length} onExport={handleExport} />
             </div>
           </div>
 
