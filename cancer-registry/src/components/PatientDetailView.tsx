@@ -53,6 +53,8 @@ const SUBTIPE_OPTIONS = [
 ];
 const ECOG_OPTIONS = ["0", "1", "2", "3", "4"];
 const STADIUM_OPTIONS = ["I", "II", "III", "IV"];
+const JK_OPTIONS = ["Laki - Laki", "Perempuan"];
+const PENDIDIKAN_OPTIONS = ["SD", "SLTP", "SMP", "SLTA", "SMA", "Diploma", "S1", "S2", "S3"];
 
 // Headers already surfaced elsewhere (identity sidebar, diagnosis, history,
 // labs, or consumed by the editable form below) — excluded from the raw
@@ -504,24 +506,69 @@ export function PatientDetailView({
     }));
   }
 
-  const identityFields: Field[] = [
-    { label: "Nama", value: state.identity.nama, onChange: (v) => updateIdentity({ nama: v }) },
-    { label: "No ERM", value: state.identity.noErm, onChange: (v) => updateIdentity({ noErm: v }) },
-    { label: "Tahun", value: state.identity.tahun, onChange: (v) => updateIdentity({ tahun: v }) },
-    { label: "JK", value: state.identity.jk, onChange: (v) => updateIdentity({ jk: v }) },
-    { label: "Usia", value: state.identity.usia, onChange: (v) => updateIdentity({ usia: v }) },
+  const identityFields: Array<{
+    field: Field;
+    kind: "text" | "select";
+    options?: string[];
+  }> = [
     {
-      label: "Pendidikan terakhir",
-      value: state.identity.pendidikan,
-      onChange: (v) => updateIdentity({ pendidikan: v }),
+      field: { label: "Nama", value: state.identity.nama, onChange: (v) => updateIdentity({ nama: v }) },
+      kind: "text",
     },
     {
-      label: "Pekerjaan",
-      value: state.identity.pekerjaan,
-      onChange: (v) => updateIdentity({ pekerjaan: v }),
+      field: {
+        label: "No ERM",
+        value: state.identity.noErm,
+        onChange: (v) => updateIdentity({ noErm: v }),
+      },
+      kind: "text",
     },
-    { label: "No HP", value: state.identity.noHp, onChange: (v) => updateIdentity({ noHp: v }) },
-    { label: "NIK", value: state.identity.nik, onChange: (v) => updateIdentity({ nik: v }) },
+    {
+      field: { label: "NIK", value: state.identity.nik, onChange: (v) => updateIdentity({ nik: v }) },
+      kind: "text",
+    },
+    {
+      field: {
+        label: "Tahun",
+        value: state.identity.tahun,
+        onChange: (v) => updateIdentity({ tahun: v }),
+      },
+      kind: "text",
+    },
+    {
+      field: { label: "JK", value: state.identity.jk, onChange: (v) => updateIdentity({ jk: v }) },
+      kind: "select",
+      options: JK_OPTIONS,
+    },
+    {
+      field: { label: "Usia", value: state.identity.usia, onChange: (v) => updateIdentity({ usia: v }) },
+      kind: "text",
+    },
+    {
+      field: {
+        label: "Pendidikan terakhir",
+        value: state.identity.pendidikan,
+        onChange: (v) => updateIdentity({ pendidikan: v }),
+      },
+      kind: "select",
+      options: PENDIDIKAN_OPTIONS,
+    },
+    {
+      field: {
+        label: "Pekerjaan",
+        value: state.identity.pekerjaan,
+        onChange: (v) => updateIdentity({ pekerjaan: v }),
+      },
+      kind: "text",
+    },
+    {
+      field: {
+        label: "No HP",
+        value: state.identity.noHp,
+        onChange: (v) => updateIdentity({ noHp: v }),
+      },
+      kind: "text",
+    },
   ];
 
   const leaderField: Field = {
@@ -1008,24 +1055,14 @@ export function PatientDetailView({
               Identitas pasien
             </div>
             <div className="space-y-4">
-              {identityFields.map((field) => (
-                <div key={field.label}>
-                  <label className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                    {field.label}
-                  </label>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={field.value}
-                      onChange={(e) => field.onChange(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
-                    />
-                  ) : (
-                    <div className="break-words text-sm font-medium text-zinc-900">
-                      {field.value || <span className="text-zinc-400">-</span>}
-                    </div>
-                  )}
-                </div>
+              {identityFields.map(({ field, kind, options }) => (
+                <DiagnosisField
+                  key={field.label}
+                  field={field}
+                  isEditing={isEditing}
+                  kind={kind}
+                  options={options}
+                />
               ))}
             </div>
           </CardContent>
