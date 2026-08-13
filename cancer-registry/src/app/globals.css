@@ -57,3 +57,12 @@ body {
   background: rgba(69, 170, 255, 0.25);
   color: #182338;
 }
+
+@keyframes export-progress-slide {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}

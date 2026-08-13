@@ -7,6 +7,7 @@ import { addRow, addedRowsStorageKey, loadAddedRows } from "@/lib/addedRows";
 import { AddRecordModal } from "@/components/AddRecordModal";
 import { AppShell } from "@/components/AppShell";
 import { ExportMenu } from "@/components/ExportMenu";
+import { ExportStatus, ExportStatusToast } from "@/components/ExportStatusToast";
 import { FilterModal } from "@/components/FilterModal";
 import { ImportCsvModal } from "@/components/ImportCsvModal";
 import { ModuleHeader } from "@/components/ModuleHeader";
@@ -38,10 +39,12 @@ import {
   ColumnType,
   FilterCombinator,
   FilterRule,
+  SortState,
   activeRules,
   inferColumnType,
   matchesRules,
   operatorLabel,
+  sortRows,
 } from "@/lib/columnFilters";
 import { useLocalStorageValue } from "@/lib/useLocalStorageValue";
 
@@ -88,9 +91,16 @@ function RegistryListPageInner() {
   const [filterRules, setFilterRules] = React.useState<FilterRule[]>([]);
   const [filterCombinator, setFilterCombinator] = React.useState<FilterCombinator>("AND");
   const [filterOpen, setFilterOpen] = React.useState(false);
+  const [sort, setSort] = React.useState<SortState | null>(null);
+  const [exportStatus, setExportStatus] = React.useState<ExportStatus | null>(null);
+  const exportStatusTimeout = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [importOpen, setImportOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
   const [csvUrlDraft, setCsvUrlDraft] = React.useState("");
+
+  React.useEffect(() => {
+    return () => clearTimeout(exportStatusTimeout.current);
+  }, []);
 
   async function loadFromUrl(url: string) {
     if (!config) return;
@@ -196,8 +206,20 @@ function RegistryListPageInner() {
     });
   }, [q, baseRows, headers, filterRules, filterCombinator]);
 
+  const sortedRows = React.useMemo<Row[]>(() => {
+    return sortRows(filteredRows, sort, sort ? columnTypes[sort.column] ?? "text" : "text");
+  }, [filteredRows, sort, columnTypes]);
+
   function removeFilterRule(id: string) {
     setFilterRules((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  function handleHeaderClick(header: string) {
+    setSort((prev) => {
+      if (!prev || prev.column !== header) return { column: header, direction: "asc" };
+      if (prev.direction === "asc") return { column: header, direction: "desc" };
+      return null;
+    });
   }
 
   function detailHref(key: string) {
@@ -207,7 +229,7 @@ function RegistryListPageInner() {
   const exportHeaders = React.useMemo(() => ["Status", ...visibleHeaders], [visibleHeaders]);
 
   const exportRows = React.useMemo<Row[]>(() => {
-    return filteredRows.map((r) => {
+    return sortedRows.map((r) => {
       const status =
         overrides[rowKey(r)]?.status ??
         mapKesimpulanToStatus(findHeaderValue(r, headers, "kesimpulan"));
@@ -215,21 +237,31 @@ function RegistryListPageInner() {
       for (const h of visibleHeaders) out[h] = r[h] ?? "";
       return out;
     });
-  }, [filteredRows, overrides, headers, visibleHeaders]);
+  }, [sortedRows, overrides, headers, visibleHeaders]);
 
-  function handleExport(format: "csv" | "xlsx" | "pdf") {
+  async function handleExport(format: "csv" | "xlsx" | "pdf") {
     const base = (config?.label ?? typeId).replace(/\s+/g, "-");
-    if (format === "csv") {
-      exportToCsv(exportHeaders, exportRows, `${base}-registry.csv`);
-    } else if (format === "xlsx") {
-      void exportToXlsx(exportHeaders, exportRows, `${base}-registry.xlsx`);
-    } else {
-      void exportToPdf(
-        exportHeaders,
-        exportRows,
-        `${base}-registry.pdf`,
-        `${config?.label ?? typeId} registry data`,
-      );
+    const filename = `${base}-registry.${format}`;
+    clearTimeout(exportStatusTimeout.current);
+    setExportStatus({ format, filename, state: "exporting" });
+    try {
+      if (format === "csv") {
+        exportToCsv(exportHeaders, exportRows, filename);
+      } else if (format === "xlsx") {
+        await exportToXlsx(exportHeaders, exportRows, filename);
+      } else {
+        await exportToPdf(exportHeaders, exportRows, filename, `${config?.label ?? typeId} registry data`);
+      }
+      setExportStatus({ format, filename, state: "done" });
+    } catch (e) {
+      setExportStatus({
+        format,
+        filename,
+        state: "error",
+        message: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      exportStatusTimeout.current = setTimeout(() => setExportStatus(null), 3000);
     }
   }
 
@@ -350,13 +382,27 @@ function RegistryListPageInner() {
                     <th className="px-4 py-3 whitespace-nowrap">Status</th>
                     {visibleHeaders.map((h) => (
                       <th key={h} className="px-4 py-3 whitespace-nowrap">
-                        {h}
+                        <button
+                          type="button"
+                          onClick={() => handleHeaderClick(h)}
+                          className="inline-flex items-center gap-1 hover:text-zinc-900"
+                        >
+                          <span>{h}</span>
+                          <span
+                            className={cn(
+                              "text-[10px]",
+                              sort?.column === h ? "text-accent-600" : "text-zinc-300",
+                            )}
+                          >
+                            {sort?.column === h ? (sort.direction === "asc" ? "▲" : "▼") : "↕"}
+                          </span>
+                        </button>
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.slice(0, 500).map((r, idx) => (
+                  {sortedRows.slice(0, 500).map((r, idx) => (
                     <tr
                       key={idx}
                       className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer"
@@ -437,6 +483,10 @@ function RegistryListPageInner() {
             }}
             onClose={() => setFilterOpen(false)}
           />
+        ) : null}
+
+        {exportStatus ? (
+          <ExportStatusToast status={exportStatus} onDismiss={() => setExportStatus(null)} />
         ) : null}
 
         {addOpen ? (

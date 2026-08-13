@@ -194,3 +194,42 @@ export function matchesRules(
   const results = active.map((r) => matchesColumnFilter(row[r.column] ?? "", r));
   return combinator === "AND" ? results.every(Boolean) : results.some(Boolean);
 }
+
+export type SortDirection = "asc" | "desc";
+
+export type SortState = { column: string; direction: SortDirection };
+
+/** Type-aware ascending comparison for two known-non-blank values. */
+function compareForSort(a: string, b: string, type: ColumnType): number {
+  if (type === "number") {
+    const na = parseNumber(a);
+    const nb = parseNumber(b);
+    if (na !== null && nb !== null) return na - nb;
+  }
+  if (type === "date") {
+    const da = parseDate(a);
+    const db = parseDate(b);
+    if (da !== null && db !== null) return da - db;
+  }
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+export function sortRows<T extends Record<string, string>>(
+  rows: T[],
+  sort: SortState | null,
+  columnType: ColumnType,
+): T[] {
+  if (!sort) return rows;
+  const sign = sort.direction === "asc" ? 1 : -1;
+  return [...rows].sort((ra, rb) => {
+    const a = ra[sort.column] ?? "";
+    const b = rb[sort.column] ?? "";
+    const aBlank = a.trim() === "";
+    const bBlank = b.trim() === "";
+    // Blanks always sort last, independent of direction.
+    if (aBlank && bBlank) return 0;
+    if (aBlank) return 1;
+    if (bBlank) return -1;
+    return sign * compareForSort(a, b, columnType);
+  });
+}
