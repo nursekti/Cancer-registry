@@ -4,109 +4,17 @@
 
 import { cacheCsv, readCsvCache } from "@/lib/csvCache";
 import { parseGid, parseSpreadsheetId } from "@/lib/fetchImtFormulas";
-import {
-  RECORD_STATUS_META,
-  RecordStatus,
-  RowOverride,
-  StoredOverride,
-  mergeOverride,
-  rowKey,
-} from "@/lib/rowOverrides";
+import { RowOverride, StoredOverride, rowKey } from "@/lib/rowOverrides";
+import { SheetUpdate, readField, setField } from "@/lib/sheetColumns";
+
+export { sheetUpdatesFor } from "@/lib/sheetColumns";
+export type { SheetUpdate } from "@/lib/sheetColumns";
 
 type Row = Record<string, string>;
 
 const WRITE_URL = process.env.NEXT_PUBLIC_SHEETS_WRITE_URL ?? "";
 
 export const sheetWriteEnabled = Boolean(WRITE_URL);
-
-type Section = "identity" | "diagnosis" | "riwayat" | "outcome";
-
-type FieldRef =
-  | { section: Section; field: string }
-  | { section: null; field: "status" | "bb" | "tb" };
-
-type FindHeader = (headers: string[]) => string | undefined;
-
-const contains =
-  (needle: string): FindHeader =>
-  (headers) =>
-    headers.find((h) => h.toLowerCase().includes(needle));
-
-const exact =
-  (needle: string): FindHeader =>
-  (headers) =>
-    headers.find((h) => h.trim().toLowerCase() === needle);
-
-function col(section: Section, field: string, header: FindHeader) {
-  return { ref: { section, field } as FieldRef, header };
-}
-
-// Mirrors the header lookups in buildInitialOverride (PatientDetailView), so
-// each field is written back to the same column it was read from.
-// Pemeriksaan penunjang and Siklus kemoterapi aren't here: the sheet has a
-// single set of columns for what the app models as lists, so they stay in
-// the browser.
-const SHEET_COLUMNS: Array<{ ref: FieldRef; header: FindHeader }> = [
-  col("identity", "nama", exact("nama")),
-  col("identity", "noErm", exact("no erm")),
-  col("identity", "tahun", contains("tahun")),
-  col("identity", "jk", (h) => contains("jenis kelamin")(h) ?? contains("jk")(h)),
-  col("identity", "usia", contains("usia")),
-  col("identity", "pendidikan", contains("pendidikan")),
-  col("identity", "pekerjaan", contains("pekerjaan")),
-  col("identity", "noHp", contains("no hp")),
-  col("identity", "nik", contains("nik")),
-  col("diagnosis", "leader", contains("leader")),
-  col("diagnosis", "tegakDiagnosis", contains("tegak")),
-  col("diagnosis", "lokasiPa", contains("lokasi pa")),
-  col("diagnosis", "hasilPa", contains("hasil pa")),
-  col("diagnosis", "subtipeImunohistokimia", contains("imunohistokimia")),
-  col("diagnosis", "subtipe", exact("subtipe")),
-  col("diagnosis", "ecogScore", contains("ecog")),
-  col("diagnosis", "stadium", contains("stadium")),
-  col("riwayat", "kankerKeluarga", contains("kanker keluarga")),
-  col("riwayat", "dm", contains("riwayat dm")),
-  col("riwayat", "ht", contains("riwayat ht")),
-  col("riwayat", "penyakitJantung", contains("penyakit jantung")),
-  col("riwayat", "hepatitisB", contains("hepatitis b")),
-  col("riwayat", "ckd", contains("riwayat ckd")),
-  col("riwayat", "ppok", contains("riwayat ppok")),
-  col("riwayat", "hiv", contains("riwayat hiv")),
-  col("riwayat", "doublePrimary", contains("double primary")),
-  col("outcome", "statusRemission", contains("remission")),
-  col("outcome", "lostToFollowUp", contains("lost to follow up")),
-  col("outcome", "timeToEvent", contains("time to event")),
-  col("outcome", "dx", exact("dx")),
-  { ref: { section: null, field: "status" }, header: contains("kesimpulan") },
-  { ref: { section: null, field: "bb" }, header: contains("bb (kg)") },
-  { ref: { section: null, field: "tb" }, header: contains("tb (cm)") },
-];
-
-export type SheetUpdate = { ref: FieldRef; header: string; value: string };
-
-function readField(o: StoredOverride, ref: FieldRef): string | undefined {
-  if (ref.section === null) return o[ref.field];
-  return (o[ref.section] as Record<string, string | undefined> | undefined)?.[ref.field];
-}
-
-// The fields in `changes` that have a column in this sheet, with values in
-// the sheet's own format.
-export function sheetUpdatesFor(changes: StoredOverride, headers: string[]): SheetUpdate[] {
-  const out: SheetUpdate[] = [];
-  for (const { ref, header: findHeader } of SHEET_COLUMNS) {
-    const raw = readField(changes, ref);
-    if (raw === undefined) continue;
-    const header = findHeader(headers);
-    if (!header) continue;
-    // KESIMPULAN holds the status as upper-case text (see mapKesimpulanToStatus).
-    const value =
-      ref.section === null && ref.field === "status"
-        ? RECORD_STATUS_META[raw as RecordStatus].label.toUpperCase()
-        : raw;
-    out.push({ ref, header, value });
-  }
-  return out;
-}
 
 // The sheet-seeded base after `written` landed in the sheet: those fields now
 // come from the sheet, so they no longer count as local edits.
@@ -115,16 +23,9 @@ export function applySheetUpdates(
   changes: StoredOverride,
   written: SheetUpdate[],
 ): RowOverride {
-  const landed: StoredOverride = {};
-  for (const { ref } of written) {
-    const value = readField(changes, ref);
-    if (ref.section === null) {
-      (landed as Record<string, unknown>)[ref.field] = value;
-    } else {
-      landed[ref.section] = { ...landed[ref.section], [ref.field]: value };
-    }
-  }
-  return mergeOverride(base, landed);
+  const next = structuredClone(base);
+  for (const { ref } of written) setField(next, ref, readField(changes, ref));
+  return next;
 }
 
 // Same precedence as rowKey: the sheet row is found by NO ERM, else NIK,
