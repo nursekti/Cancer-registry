@@ -17,6 +17,10 @@ function findRow(rows: Row[], key: string, cancerType: CancerTypeId): Row | null
   );
 }
 
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function useCsvRowByKey(
   url: string,
   key: string,
@@ -38,24 +42,27 @@ export function useCsvRowByKey(
         if (!cancelled) setRow(findRow([], key, cancerType));
         return;
       }
+      // Show the cached copy right away, but always re-fetch so a page
+      // refresh picks up edits made directly in the sheet.
       const cached = readCsvCache(url);
-      if (cached) {
-        if (!cancelled) {
-          setHeaders(cached.headers);
-          setRow(findRow(cached.rows, key, cancerType));
-        }
-        return;
+      if (cached && !cancelled) {
+        setHeaders(cached.headers);
+        setRow(findRow(cached.rows, key, cancerType));
       }
       try {
         const text = await fetchGoogleCsv(url);
         const parsed = parseCsv(text);
         cacheCsv(url, parsed.headers, parsed.rows);
         if (!cancelled) {
-          setHeaders(parsed.headers);
-          setRow(findRow(parsed.rows, key, cancerType));
+          // Keep the same objects when nothing changed, so the detail view
+          // doesn't needlessly re-seed.
+          setHeaders((prev) => (sameJson(prev, parsed.headers) ? prev : parsed.headers));
+          const fresh = findRow(parsed.rows, key, cancerType);
+          setRow((prev) => (sameJson(prev, fresh) ? prev : fresh));
         }
       } catch (e) {
-        if (!cancelled) {
+        // With a cached copy on screen, a failed refresh just keeps it.
+        if (!cancelled && !cached) {
           setError(e instanceof Error ? e.message : "Unknown error");
         }
       }

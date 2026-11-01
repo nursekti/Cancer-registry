@@ -147,11 +147,12 @@ function RegistryListPageInner() {
   React.useEffect(() => {
     if (!config) return;
     if (!config.csvUrl) return;
+    // Show the cached copy right away, but always re-fetch so a page refresh
+    // picks up edits made directly in the sheet.
     const cached = readCsvCache(config.csvUrl);
     if (cached) {
       setHeaders(cached.headers);
       setRows(cached.rows);
-      return;
     }
     void loadFromUrl(config.csvUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when the type/url actually changes
