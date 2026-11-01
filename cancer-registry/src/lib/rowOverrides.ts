@@ -125,7 +125,19 @@ export type RowOverride = {
   bsa: string;
 };
 
-type OverrideMap = Record<string, RowOverride>;
+// What actually gets persisted: only the fields the user changed relative to
+// the sheet (see diffOverride), so later sheet updates still show up for
+// every field the user never touched.
+export type StoredOverride = Partial<
+  Omit<RowOverride, "identity" | "diagnosis" | "riwayat" | "outcome">
+> & {
+  identity?: Partial<IdentityFields>;
+  diagnosis?: Partial<DiagnosisFields>;
+  riwayat?: Partial<RiwayatFields>;
+  outcome?: Partial<OutcomeFields>;
+};
+
+type OverrideMap = Record<string, StoredOverride>;
 
 export function rowKey(row: Record<string, string>): string {
   return (
@@ -193,20 +205,20 @@ export function loadOverrides(): OverrideMap {
   }
 }
 
-export function loadOverride(key: string): RowOverride | null {
+export function loadOverride(key: string): StoredOverride | null {
   return loadOverrides()[key] ?? null;
 }
 
-export function saveOverride(key: string, override: RowOverride): void {
+export function saveOverride(key: string, override: StoredOverride): void {
   const all = loadOverrides();
-  all[key] = override;
+  if (Object.keys(override).length) all[key] = override;
+  else delete all[key];
   setLocalStorageItem(LS_ROW_OVERRIDES, JSON.stringify(all));
 }
 
 export function markDeleted(key: string): void {
   const all = loadOverrides();
-  const existing = all[key];
-  all[key] = { ...(existing ?? emptyOverride()), deleted: true };
+  all[key] = { ...all[key], deleted: true };
   setLocalStorageItem(LS_ROW_OVERRIDES, JSON.stringify(all));
 }
 
@@ -263,7 +275,7 @@ export function emptyOverride(): RowOverride {
 // complete, however the data was created.
 export function mergeOverride(
   base: RowOverride,
-  stored: Partial<RowOverride>,
+  stored: StoredOverride,
 ): RowOverride {
   return {
     ...base,
@@ -273,4 +285,48 @@ export function mergeOverride(
     riwayat: { ...base.riwayat, ...stored.riwayat },
     outcome: { ...base.outcome, ...stored.outcome },
   };
+}
+
+function diffFields<T extends Record<string, string>>(
+  base: T,
+  next: T,
+): Partial<T> | undefined {
+  const out: Partial<T> = {};
+  for (const k of Object.keys(next) as Array<keyof T>) {
+    if (next[k] !== base[k]) out[k] = next[k];
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+// Checkup/lini/drug ids are freshly generated every time a row is seeded from
+// the sheet, so entries are compared by content only.
+function sameIgnoringIds(a: unknown, b: unknown): boolean {
+  const skipIds = (k: string, v: unknown) => (k === "id" ? undefined : v);
+  return JSON.stringify(a, skipIds) === JSON.stringify(b, skipIds);
+}
+
+// The inverse of mergeOverride: keeps only what differs from the sheet-seeded
+// base. Text fields are compared one by one; the checkup and lini lists are
+// stored whole once anything in them changes.
+export function diffOverride(base: RowOverride, next: RowOverride): StoredOverride {
+  const out: StoredOverride = {};
+  if (next.deleted) out.deleted = true;
+  if (next.status && next.status !== base.status) out.status = next.status;
+
+  const identity = diffFields(base.identity, next.identity);
+  if (identity) out.identity = identity;
+  const diagnosis = diffFields(base.diagnosis, next.diagnosis);
+  if (diagnosis) out.diagnosis = diagnosis;
+  const riwayat = diffFields(base.riwayat, next.riwayat);
+  if (riwayat) out.riwayat = riwayat;
+  const outcome = diffFields(base.outcome, next.outcome);
+  if (outcome) out.outcome = outcome;
+
+  if (!sameIgnoringIds(base.checkups, next.checkups)) out.checkups = next.checkups;
+  if (!sameIgnoringIds(base.liniList, next.liniList)) out.liniList = next.liniList;
+
+  for (const k of ["bb", "tb", "bsa"] as const) {
+    if (next[k] !== base[k]) out[k] = next[k];
+  }
+  return out;
 }

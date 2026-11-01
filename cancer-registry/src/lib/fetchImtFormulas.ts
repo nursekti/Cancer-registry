@@ -6,7 +6,7 @@
 
 type SheetMeta = { properties: { sheetId: number; title: string } };
 
-function parseSpreadsheetId(rawUrl: string): string | null {
+export function parseSpreadsheetId(rawUrl: string): string | null {
   try {
     const url = new URL(rawUrl);
     const match = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
@@ -16,7 +16,7 @@ function parseSpreadsheetId(rawUrl: string): string | null {
   }
 }
 
-function parseGid(rawUrl: string): string {
+export function parseGid(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
     return url.searchParams.get("gid") ?? url.hash.replace(/^#gid=/, "") ?? "0";

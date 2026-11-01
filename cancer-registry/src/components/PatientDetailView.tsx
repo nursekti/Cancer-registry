@@ -6,7 +6,14 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
+import { loadAddedRows } from "@/lib/addedRows";
 import { fetchImtFormulas } from "@/lib/fetchImtFormulas";
+import {
+  applySheetUpdates,
+  sheetUpdatesFor,
+  sheetWriteEnabled,
+  writeRowToSheet,
+} from "@/lib/sheetWriteBack";
 import {
   CheckupEntry,
   DiagnosisFields,
@@ -18,6 +25,7 @@ import {
   RecordStatus,
   RiwayatFields,
   RowOverride,
+  diffOverride,
   emptyOverride,
   findExactHeaderValue,
   findHeaderValue,
@@ -316,11 +324,26 @@ export function PatientDetailView({
   onSaved: (key: string, override: RowOverride) => void;
 }) {
   const key = React.useMemo(() => rowKey(row), [row]);
+  // What the sheet alone says about this patient; saves store only the
+  // fields that differ from it.
+  const [baseline, setBaseline] = React.useState<RowOverride>(() =>
+    buildInitialOverride(row, headers),
+  );
   const [state, setState] = React.useState<RowOverride>(() => {
-    const seeded = buildInitialOverride(row, headers);
     const stored = loadOverride(key);
-    return stored ? mergeOverride(seeded, stored) : seeded;
+    return stored ? mergeOverride(baseline, stored) : baseline;
   });
+
+  // Overrides saved before only-changed-fields storage are full copies of the
+  // sheet as it was back then. Trim the fields that still match the sheet so
+  // they go back to following it.
+  React.useEffect(() => {
+    const stored = loadOverride(key);
+    if (!stored) return;
+    const trimmed = diffOverride(baseline, mergeOverride(baseline, stored));
+    if (JSON.stringify(trimmed) !== JSON.stringify(stored)) saveOverride(key, trimmed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time cleanup per patient
+  }, [key]);
 
   // The HL sheet only stores a computed IMT value, not BB/TB — reverse-parse
   // them from the cell's literal formula (e.g. "=51/(1,7)^2") via the
@@ -334,6 +357,7 @@ export function PatientDetailView({
         const noErm = row["NO ERM"]?.trim();
         const derived = noErm ? map[noErm] : undefined;
         if (!derived) return;
+        setBaseline((b) => (b.bb || b.tb ? b : { ...b, bb: derived.bb, tb: derived.tbCm }));
         setState((s) => (s.bb || s.tb ? s : { ...s, bb: derived.bb, tb: derived.tbCm }));
       })
       .catch(() => {});
@@ -349,13 +373,42 @@ export function PatientDetailView({
     null,
   );
 
-  function persist(next: RowOverride, message: string) {
-    saveOverride(key, next);
+  async function persist(next: RowOverride, message: string) {
+    // Only what was changed in this edit session goes to the sheet; older
+    // browser-only edits stay local rather than overwriting newer sheet data.
+    const sessionChanges = diffOverride(preEditSnapshot ?? baseline, next);
+    saveOverride(key, diffOverride(baseline, next));
     setState(next);
     setSavedMessage(message);
     onSaved(key, next);
     setIsEditing(false);
     setPreEditSnapshot(null);
+
+    const isSheetRow = !loadAddedRows(cancerType).some((r) => rowKey(r) === key);
+    const updates =
+      sheetWriteEnabled && csvUrl && isSheetRow
+        ? sheetUpdatesFor(sessionChanges, headers)
+        : [];
+    if (!csvUrl || !updates.length) return;
+
+    setSavedMessage("Menyimpan ke spreadsheet...");
+    try {
+      const { written, skipped } = await writeRowToSheet(csvUrl, row, updates);
+      const nextBaseline = applySheetUpdates(baseline, sessionChanges, written);
+      setBaseline(nextBaseline);
+      saveOverride(key, diffOverride(nextBaseline, next));
+      setSavedMessage(
+        skipped.length
+          ? `Tersimpan ke spreadsheet, kecuali: ${skipped.join(", ")}.`
+          : "Tersimpan ke spreadsheet.",
+      );
+    } catch (e) {
+      setSavedMessage(
+        `Tersimpan di browser saja, gagal menulis ke spreadsheet: ${
+          e instanceof Error ? e.message : "Unknown error"
+        }`,
+      );
+    }
   }
 
   function handleEdit() {
@@ -372,7 +425,7 @@ export function PatientDetailView({
   }
 
   function handleUpdate() {
-    persist(state, "Tersimpan.");
+    void persist(state, "Tersimpan.");
   }
 
   function handleDelete() {
