@@ -52,33 +52,72 @@ function patchCachedRow(csvUrl: string, row: Row, written: SheetUpdate[]): void 
   );
 }
 
-type WriteResponse =
-  | { ok: true; written: string[]; skipped: Array<{ header: string; reason: string }> }
-  | { ok: false; error: string };
+function sheetTarget(csvUrl: string): { spreadsheetId: string; gid: string } {
+  const spreadsheetId = parseSpreadsheetId(csvUrl);
+  if (!spreadsheetId) throw new Error("URL spreadsheet tidak valid");
+  return { spreadsheetId, gid: parseGid(csvUrl) || "0" };
+}
+
+async function callScript<T>(init?: RequestInit, query?: Record<string, string>): Promise<T> {
+  const url = query ? `${WRITE_URL}?${new URLSearchParams(query)}` : WRITE_URL;
+  const res = await fetch(url, init);
+  if (!res.ok) throw new Error(`Gagal menghubungi spreadsheet (${res.status})`);
+  const data = (await res.json()) as ({ ok: true } & T) | { ok: false; error: string };
+  if (!data.ok) throw new Error(data.error);
+  return data;
+}
+
+// Header names can differ between the CSV export and the sheet itself in
+// whitespace (line breaks) or case.
+export function normalizeHeader(h: string): string {
+  return h.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// Every column of this tab that has a dropdown in the sheet, keyed by
+// normalized header.
+export async function fetchSheetDropdowns(csvUrl: string): Promise<Record<string, string[]>> {
+  const { dropdowns } = await callScript<{ dropdowns: Record<string, string[]> }>(undefined, {
+    action: "dropdowns",
+    ...sheetTarget(csvUrl),
+  });
+  return Object.fromEntries(Object.entries(dropdowns).map(([h, o]) => [normalizeHeader(h), o]));
+}
+
+// Adds a label to a column's dropdown in the sheet; returns the new options.
+export async function addSheetDropdownOption(
+  csvUrl: string,
+  header: string,
+  option: string,
+): Promise<string[]> {
+  const { options } = await callScript<{ options: string[] }>({
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "addOption", ...sheetTarget(csvUrl), header, option }),
+  });
+  return options;
+}
+
+type WriteResponse = {
+  written: string[];
+  skipped: Array<{ header: string; reason: string }>;
+};
 
 export async function writeRowToSheet(
   csvUrl: string,
   row: Row,
   updates: SheetUpdate[],
 ): Promise<{ written: SheetUpdate[]; skipped: string[] }> {
-  const spreadsheetId = parseSpreadsheetId(csvUrl);
-  if (!spreadsheetId) throw new Error("URL spreadsheet tidak valid");
-
   // text/plain keeps this a "simple" request — Apps Script can't answer a
   // CORS preflight.
-  const res = await fetch(WRITE_URL, {
+  const data = await callScript<WriteResponse>({
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({
-      spreadsheetId,
-      gid: parseGid(csvUrl) || "0",
+      ...sheetTarget(csvUrl),
       match: matchFor(row),
       updates: Object.fromEntries(updates.map((u) => [u.header, u.value])),
     }),
   });
-  if (!res.ok) throw new Error(`Gagal menghubungi spreadsheet (${res.status})`);
-  const data = (await res.json()) as WriteResponse;
-  if (!data.ok) throw new Error(data.error);
 
   const writtenHeaders = new Set(data.written);
   const written = updates.filter((u) => writtenHeaders.has(u.header));

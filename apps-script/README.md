@@ -21,9 +21,18 @@ Opening the URL in a browser should show `{"ok":true,"service":"cancer-registry-
 
 After editing `Code.gs`: **Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy**.
 This keeps the same URL. Creating a *new* deployment instead gives a new URL.
+If Google asks to authorize again (new permissions), accept — the dropdown
+feature calls the Sheets API, which needs "connect to an external service".
 
 ### What it writes
 
 - Only plain columns of the patient's row, found by `NO ERM` (or `NIK`/`NAMA` when empty).
 - Cells that contain a formula are never overwritten; they come back as `skipped`.
-- Pemeriksaan penunjang and Siklus kemoterapi are not written — they stay in the browser.
+- Pemeriksaan penunjang exams and the drug list are not written — they stay in the browser.
+
+### Dropdowns
+
+The web app reads each column's dropdown options from the sheet itself, and
+"+ Tambah label baru…" adds the label to that same dropdown in the sheet —
+for Table1 columns (DATA NHL) and plain dropdown validations (DATA HL) alike.
+Only columns that already have a dropdown in the sheet offer this.

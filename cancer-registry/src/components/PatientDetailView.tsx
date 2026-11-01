@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { DatedEntriesField, LongTextField } from "@/components/LongText";
+import { OptionSelect, SheetDropdownsProvider } from "@/components/OptionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -22,7 +23,7 @@ import {
   optionsForType,
   rejimenOptions,
 } from "@/lib/fieldOptions";
-import { seedFromSheet } from "@/lib/sheetColumns";
+import { FieldRef, headerFor, seedFromSheet } from "@/lib/sheetColumns";
 import {
   applySheetUpdates,
   sheetUpdatesFor,
@@ -56,9 +57,17 @@ import {
 } from "@/lib/rowOverrides";
 
 type Row = Record<string, string>;
-type Field = { label: string; value: string; onChange: (value: string) => void };
+type Field = {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  // The sheet column behind a dropdown field; its options (and new labels)
+  // come from that column's dropdown in the sheet.
+  sheetHeader?: string;
+};
 
 const EXAM_TYPE_OPTIONS = ["CT scan", "Rontgen", "USG", "Bone survey"];
+const YA_TIDAK_OPTIONS = ["Ya", "Tidak"];
 
 const DOSE_PATTERN = /\d+(?:[.,]\d+)?\s*(?:mg|mcg|g|gr|ml|cc|iu|unit)\b/i;
 
@@ -151,6 +160,7 @@ export function PatientDetailView({
   onSaved: (key: string, override: RowOverride) => void;
 }) {
   const key = React.useMemo(() => rowKey(row), [row]);
+  const col = (ref: FieldRef) => headerFor(ref, headers);
   // What the sheet alone says about this patient; saves store only the
   // fields that differ from it.
   const [baseline, setBaseline] = React.useState<RowOverride>(() =>
@@ -436,7 +446,12 @@ export function PatientDetailView({
       kind: "text",
     },
     {
-      field: { label: "JK", value: state.identity.jk, onChange: (v) => updateIdentity({ jk: v }) },
+      field: {
+        label: "JK",
+        value: state.identity.jk,
+        onChange: (v) => updateIdentity({ jk: v }),
+        sheetHeader: col({ section: "identity", field: "jk" }),
+      },
       kind: "select",
       options: JK_OPTIONS,
     },
@@ -449,6 +464,7 @@ export function PatientDetailView({
         label: "Pendidikan terakhir",
         value: state.identity.pendidikan,
         onChange: (v) => updateIdentity({ pendidikan: v }),
+        sheetHeader: col({ section: "identity", field: "pendidikan" }),
       },
       kind: "select",
       options: PENDIDIKAN_OPTIONS,
@@ -477,11 +493,13 @@ export function PatientDetailView({
     label: "Leader",
     value: state.diagnosis.leader,
     onChange: (v) => updateDiagnosis({ leader: v }),
+    sheetHeader: col({ section: "diagnosis", field: "leader" }),
   };
   const nodalTypeField: Field = {
     label: "Nodal / extranodal",
     value: state.diagnosis.nodalType,
     onChange: (v) => updateDiagnosis({ nodalType: v }),
+    sheetHeader: col({ section: "diagnosis", field: "nodalType" }),
   };
   const tegakDiagnosisField: Field = {
     label: "Tegak diagnosis",
@@ -497,51 +515,48 @@ export function PatientDetailView({
     label: "Subtipe",
     value: state.diagnosis.subtipe,
     onChange: (v) => updateDiagnosis({ subtipe: v }),
+    sheetHeader: col({ section: "diagnosis", field: "subtipe" }),
   };
   const ecogField: Field = {
     label: "ECOG score",
     value: state.diagnosis.ecogScore,
     onChange: (v) => updateDiagnosis({ ecogScore: v }),
+    sheetHeader: col({ section: "diagnosis", field: "ecogScore" }),
   };
   const stadiumField: Field = {
     label: "Stadium (Ann-Arbor)",
     value: state.diagnosis.stadium,
     onChange: (v) => updateDiagnosis({ stadium: v }),
+    sheetHeader: col({ section: "diagnosis", field: "stadium" }),
   };
   const metastasisField: Field = {
     label: "Metastasis",
     value: state.diagnosis.metastasis,
     onChange: (v) => updateDiagnosis({ metastasis: v }),
+    sheetHeader: col({ section: "diagnosis", field: "metastasis" }),
   };
+
+  function riwayatItem(label: string, field: keyof RiwayatFields): Field {
+    return {
+      label,
+      value: state.riwayat[field],
+      onChange: (v) => updateRiwayat({ [field]: v }),
+      sheetHeader: col({ section: "riwayat", field }),
+    };
+  }
 
   const comorbidityItems: Field[] = [
-    {
-      label: "Kanker keluarga",
-      value: state.riwayat.kankerKeluarga,
-      onChange: (v) => updateRiwayat({ kankerKeluarga: v }),
-    },
-    { label: "Diabetes melitus (DM)", value: state.riwayat.dm, onChange: (v) => updateRiwayat({ dm: v }) },
-    { label: "Hipertensi (HT)", value: state.riwayat.ht, onChange: (v) => updateRiwayat({ ht: v }) },
-    {
-      label: "Penyakit jantung",
-      value: state.riwayat.penyakitJantung,
-      onChange: (v) => updateRiwayat({ penyakitJantung: v }),
-    },
-    {
-      label: "Hepatitis B",
-      value: state.riwayat.hepatitisB,
-      onChange: (v) => updateRiwayat({ hepatitisB: v }),
-    },
-    { label: "CKD", value: state.riwayat.ckd, onChange: (v) => updateRiwayat({ ckd: v }) },
-    { label: "PPOK", value: state.riwayat.ppok, onChange: (v) => updateRiwayat({ ppok: v }) },
-    { label: "HIV", value: state.riwayat.hiv, onChange: (v) => updateRiwayat({ hiv: v }) },
+    riwayatItem("Kanker keluarga", "kankerKeluarga"),
+    riwayatItem("Diabetes melitus (DM)", "dm"),
+    riwayatItem("Hipertensi (HT)", "ht"),
+    riwayatItem("Penyakit jantung", "penyakitJantung"),
+    riwayatItem("Hepatitis B", "hepatitisB"),
+    riwayatItem("CKD", "ckd"),
+    riwayatItem("PPOK", "ppok"),
+    riwayatItem("HIV", "hiv"),
   ];
 
-  const doublePrimaryField: Field = {
-    label: "Double primary tumours",
-    value: state.riwayat.doublePrimary,
-    onChange: (v) => updateRiwayat({ doublePrimary: v }),
-  };
+  const doublePrimaryField = riwayatItem("Double primary tumours", "doublePrimary");
 
   const jumlahKomorbiditas = comorbidityItems.filter(
     (item) => item.value.trim().toLowerCase() === "ya",
@@ -704,6 +719,7 @@ export function PatientDetailView({
                   label: `Rejimen lini ${idx + 1}`,
                   value: entry.rejimen,
                   onChange: (v) => updateLini(entry.id, { rejimen: v }),
+                  sheetHeader: col({ section: "lini", index: idx, field: "rejimen" }),
                 }}
                 isEditing={isEditing}
                 kind="select"
@@ -790,6 +806,7 @@ export function PatientDetailView({
               label: "Respon kemoterapi",
               value: entry.responKemoterapi,
               onChange: (v) => updateLini(entry.id, { responKemoterapi: v }),
+              sheetHeader: col({ section: "lini", index: idx, field: "responKemoterapi" }),
             }}
             isEditing={isEditing}
             kind="select"
@@ -843,335 +860,339 @@ export function PatientDetailView({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Link
-          href={backHref}
-          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-white px-4 text-sm font-medium text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50"
-        >
-          &larr; Back
-        </Link>
-        <div className="flex items-center gap-2 text-xl font-semibold text-zinc-900">
-          {title}
-        </div>
-        {isEditing ? (
-          <select
-            value={state.status ?? ""}
-            onChange={(e) =>
-              setState((s) => ({
-                ...s,
-                status: (e.target.value || undefined) as RecordStatus | undefined,
-              }))
-            }
-            className="h-9 rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
+    <SheetDropdownsProvider csvUrl={csvUrl}>
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href={backHref}
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-white px-4 text-sm font-medium text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50"
           >
-            <option value="">Status: -</option>
-            <option value="include">Include</option>
-            <option value="exclude">Exclude</option>
-            <option value="tidak_lengkap">Tidak Lengkap</option>
-          </select>
-        ) : (
-          <StatusBadge status={state.status} />
-        )}
-        {!isEditing && savedMessage ? (
-          <span className="text-xs text-zinc-500">{savedMessage}</span>
-        ) : null}
-        {!isEditing ? (
-          <Button className="ml-auto" variant="secondary" onClick={handleEdit}>
-            Edit
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[280px_1fr] lg:items-start">
-        <Card className="lg:sticky lg:top-24">
-          <CardContent className="p-5">
-            <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Identitas pasien
-            </div>
-            <div className="space-y-4">
-              {identityFields.map(({ field, kind, options }) => (
-                <DiagnosisField
-                  key={field.label}
-                  field={field}
-                  isEditing={isEditing}
-                  kind={kind}
-                  options={options}
-                />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="space-y-8">
-          <div className="space-y-6">
-            <Section title="Diagnosis">
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <DiagnosisField
-                    field={leaderField}
-                    isEditing={isEditing}
-                    kind="select"
-                    options={typeOptions.leader}
-                  />
-                  <DiagnosisField
-                    field={nodalTypeField}
-                    isEditing={isEditing}
-                    kind="select"
-                    options={NODAL_TYPE_OPTIONS}
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <DiagnosisField field={tegakDiagnosisField} isEditing={isEditing} kind="date" />
-                  <DiagnosisField field={lokasiPaField} isEditing={isEditing} kind="text" />
-                </div>
-                <DatedEntriesField
-                  label="Hasil PA"
-                  value={state.diagnosis.hasilPa}
-                  onChange={(v) => updateDiagnosis({ hasilPa: v })}
-                  isEditing={isEditing}
-                />
-                <DatedEntriesField
-                  label="Hasil imunohistokimia (IHK)"
-                  value={state.diagnosis.subtipeImunohistokimia}
-                  onChange={(v) => updateDiagnosis({ subtipeImunohistokimia: v })}
-                  isEditing={isEditing}
-                />
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <DiagnosisField
-                    field={subtipeField}
-                    isEditing={isEditing}
-                    kind="select"
-                    options={typeOptions.subtipe}
-                  />
-                  <DiagnosisField
-                    field={ecogField}
-                    isEditing={isEditing}
-                    kind="select"
-                    options={ECOG_OPTIONS}
-                  />
-                </div>
-              </div>
-            </Section>
-
-            <Section title="Riwayat penyakit & komorbiditas">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Jumlah komorbiditas
-                </span>
-                <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
-                  {jumlahKomorbiditas}
-                </span>
-              </div>
-              <EditableHistoryTable items={comorbidityItems} isEditing={isEditing} />
-
-              <div className="mt-5 border-t border-zinc-100 pt-5">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Double primary tumours
-                </div>
-                <EditableHistoryTable items={[doublePrimaryField]} isEditing={isEditing} />
-              </div>
-            </Section>
-
-            <Section title="Pemeriksaan penunjang">
-              <div className="space-y-6">
-                <div>
-                  <div className={phaseLabelClass}>Laboratorium</div>
-                  <EditableGrid fields={labFields} isEditing={isEditing} />
-                </div>
-                <div>
-                  <div className={phaseLabelClass}>Jumlah leukosit</div>
-                  <EditableLeukositTable items={leukositFields} isEditing={isEditing} />
-                </div>
-                <div>
-                  <div className={phaseLabelClass}>ANC / ALC / NLR / LMR / PLR</div>
-                  <ComputedValueTable items={computedLabRows} />
-                </div>
-
-                <div className="border-t border-zinc-100 pt-6">
-                  <div className={phaseLabelClass}>Pre-kemo</div>
-                  <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <DiagnosisField
-                      field={stadiumField}
-                      isEditing={isEditing}
-                      kind="select"
-                      options={STADIUM_OPTIONS}
-                    />
-                    <DiagnosisField
-                      field={metastasisField}
-                      isEditing={isEditing}
-                      kind="select"
-                      options={METASTASIS_OPTIONS}
-                    />
-                  </div>
-                  {renderPhaseSection("pre")}
-                </div>
-                <div>
-                  <div className={phaseLabelClass}>During kemo</div>
-                  {renderPhaseSection("during")}
-                </div>
-                <div>
-                  <div className={phaseLabelClass}>Post kemo</div>
-                  {renderPhaseSection("post")}
-                </div>
-              </div>
-            </Section>
-
-            <Section title="Status BMI">
-              <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-                <DiagnosisField
-                  field={{
-                    label: "BB (kg)",
-                    value: state.bb,
-                    onChange: (v) => setState((s) => ({ ...s, bb: v })),
-                  }}
-                  isEditing={isEditing}
-                  kind="text"
-                />
-                <DiagnosisField
-                  field={{
-                    label: "TB (cm)",
-                    value: state.tb,
-                    onChange: (v) => setState((s) => ({ ...s, tb: v })),
-                  }}
-                  isEditing={isEditing}
-                  kind="text"
-                />
-                <DiagnosisField
-                  field={{
-                    label: "IMT",
-                    value: computeImt(state.bb, state.tb),
-                    onChange: () => undefined,
-                  }}
-                  isEditing={false}
-                  kind="text"
-                />
-                <DiagnosisField
-                  field={{
-                    label: "Kategori IMT",
-                    value: categorizeImt(computeImt(state.bb, state.tb)),
-                    onChange: () => undefined,
-                  }}
-                  isEditing={false}
-                  kind="text"
-                />
-                <DiagnosisField
-                  field={{
-                    label: "BSA (m²)",
-                    value: computeBsa(state.bb, state.tb),
-                    onChange: () => undefined,
-                  }}
-                  isEditing={false}
-                  kind="text"
-                />
-              </div>
-            </Section>
-
-            <Section title="Siklus kemoterapi">
-              <div className="space-y-4">
-                {state.liniList.map((lini, idx) => renderLiniCard(lini, idx))}
-                {state.liniList.length === 0 ? (
-                  <div className="text-sm text-zinc-400">Belum ada data.</div>
-                ) : null}
-                {isEditing ? (
-                  <Button variant="secondary" size="sm" onClick={addLini}>
-                    + Tambah lini
-                  </Button>
-                ) : null}
-                <div className="border-t border-zinc-100 pt-4">
-                  <LongTextField
-                    label="Chemotherapy side effect"
-                    value={state.chemoSideEffect}
-                    onChange={(v) => setState((s) => ({ ...s, chemoSideEffect: v }))}
-                    isEditing={isEditing}
-                  />
-                </div>
-              </div>
-            </Section>
-
-            <Section title="Radioterapi">
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <DiagnosisField
-                    field={{
-                      label: "Radioterapi",
-                      value: state.radioterapi.radioterapi,
-                      onChange: (v) => updateRadioterapi({ radioterapi: v }),
-                    }}
-                    isEditing={isEditing}
-                    kind="select"
-                    options={RADIOTERAPI_OPTIONS}
-                  />
-                  <DiagnosisField
-                    field={{
-                      label: "Dosis radioterapi",
-                      value: state.radioterapi.dosis,
-                      onChange: (v) => updateRadioterapi({ dosis: v }),
-                    }}
-                    isEditing={isEditing}
-                    kind="select"
-                    options={DOSIS_RADIOTERAPI_OPTIONS}
-                  />
-                </div>
-                <DiagnosisField
-                  field={{
-                    label: "Respon radioterapi",
-                    value: state.radioterapi.respon,
-                    onChange: (v) => updateRadioterapi({ respon: v }),
-                  }}
-                  isEditing={isEditing}
-                  kind="text"
-                />
-              </div>
-            </Section>
-
-            <Section title="Ringkasan & outcome">
-              <EditableGrid fields={outcomeFields} isEditing={isEditing} />
-            </Section>
+            &larr; Back
+          </Link>
+          <div className="flex items-center gap-2 text-xl font-semibold text-zinc-900">
+            {title}
           </div>
-
           {isEditing ? (
-            <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white/95 px-6 py-4 shadow-[0_20px_70px_-30px_rgba(0,0,0,0.35)] backdrop-blur">
-              <div>
-                {confirmingDelete ? (
-                  <div className="flex items-center gap-2 text-sm text-zinc-700">
-                    Hapus data ini?
-                    <Button variant="danger" size="sm" onClick={handleDelete}>
-                      Ya, hapus
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setConfirmingDelete(false)}
-                    >
-                      Batal
-                    </Button>
-                  </div>
-                ) : (
-                  <Button
-                    variant="danger"
-                    onClick={() => setConfirmingDelete(true)}
-                  >
-                    Delete
-                  </Button>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                {savedMessage ? (
-                  <span className="text-xs text-zinc-500">{savedMessage}</span>
-                ) : null}
-                <Button variant="secondary" onClick={handleCancel}>
-                  Cancel
-                </Button>
-                <Button variant="warning" onClick={handleUpdate}>
-                  Update
-                </Button>
-              </div>
-            </div>
+            <select
+              value={state.status ?? ""}
+              onChange={(e) =>
+                setState((s) => ({
+                  ...s,
+                  status: (e.target.value || undefined) as RecordStatus | undefined,
+                }))
+              }
+              className="h-9 rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
+            >
+              <option value="">Status: -</option>
+              <option value="include">Include</option>
+              <option value="exclude">Exclude</option>
+              <option value="tidak_lengkap">Tidak Lengkap</option>
+            </select>
+          ) : (
+            <StatusBadge status={state.status} />
+          )}
+          {!isEditing && savedMessage ? (
+            <span className="text-xs text-zinc-500">{savedMessage}</span>
+          ) : null}
+          {!isEditing ? (
+            <Button className="ml-auto" variant="secondary" onClick={handleEdit}>
+              Edit
+            </Button>
           ) : null}
         </div>
+
+        <div className="grid gap-6 lg:grid-cols-[280px_1fr] lg:items-start">
+          <Card className="lg:sticky lg:top-24">
+            <CardContent className="p-5">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Identitas pasien
+              </div>
+              <div className="space-y-4">
+                {identityFields.map(({ field, kind, options }) => (
+                  <DiagnosisField
+                    key={field.label}
+                    field={field}
+                    isEditing={isEditing}
+                    kind={kind}
+                    options={options}
+                  />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="space-y-8">
+            <div className="space-y-6">
+              <Section title="Diagnosis">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <DiagnosisField
+                      field={leaderField}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={typeOptions.leader}
+                    />
+                    <DiagnosisField
+                      field={nodalTypeField}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={NODAL_TYPE_OPTIONS}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <DiagnosisField field={tegakDiagnosisField} isEditing={isEditing} kind="date" />
+                    <DiagnosisField field={lokasiPaField} isEditing={isEditing} kind="text" />
+                  </div>
+                  <DatedEntriesField
+                    label="Hasil PA"
+                    value={state.diagnosis.hasilPa}
+                    onChange={(v) => updateDiagnosis({ hasilPa: v })}
+                    isEditing={isEditing}
+                  />
+                  <DatedEntriesField
+                    label="Hasil imunohistokimia (IHK)"
+                    value={state.diagnosis.subtipeImunohistokimia}
+                    onChange={(v) => updateDiagnosis({ subtipeImunohistokimia: v })}
+                    isEditing={isEditing}
+                  />
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <DiagnosisField
+                      field={subtipeField}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={typeOptions.subtipe}
+                    />
+                    <DiagnosisField
+                      field={ecogField}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={ECOG_OPTIONS}
+                    />
+                  </div>
+                </div>
+              </Section>
+
+              <Section title="Riwayat penyakit & komorbiditas">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Jumlah komorbiditas
+                  </span>
+                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
+                    {jumlahKomorbiditas}
+                  </span>
+                </div>
+                <EditableHistoryTable items={comorbidityItems} isEditing={isEditing} />
+
+                <div className="mt-5 border-t border-zinc-100 pt-5">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Double primary tumours
+                  </div>
+                  <EditableHistoryTable items={[doublePrimaryField]} isEditing={isEditing} />
+                </div>
+              </Section>
+
+              <Section title="Pemeriksaan penunjang">
+                <div className="space-y-6">
+                  <div>
+                    <div className={phaseLabelClass}>Laboratorium</div>
+                    <EditableGrid fields={labFields} isEditing={isEditing} />
+                  </div>
+                  <div>
+                    <div className={phaseLabelClass}>Jumlah leukosit</div>
+                    <EditableLeukositTable items={leukositFields} isEditing={isEditing} />
+                  </div>
+                  <div>
+                    <div className={phaseLabelClass}>ANC / ALC / NLR / LMR / PLR</div>
+                    <ComputedValueTable items={computedLabRows} />
+                  </div>
+
+                  <div className="border-t border-zinc-100 pt-6">
+                    <div className={phaseLabelClass}>Pre-kemo</div>
+                    <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <DiagnosisField
+                        field={stadiumField}
+                        isEditing={isEditing}
+                        kind="select"
+                        options={STADIUM_OPTIONS}
+                      />
+                      <DiagnosisField
+                        field={metastasisField}
+                        isEditing={isEditing}
+                        kind="select"
+                        options={METASTASIS_OPTIONS}
+                      />
+                    </div>
+                    {renderPhaseSection("pre")}
+                  </div>
+                  <div>
+                    <div className={phaseLabelClass}>During kemo</div>
+                    {renderPhaseSection("during")}
+                  </div>
+                  <div>
+                    <div className={phaseLabelClass}>Post kemo</div>
+                    {renderPhaseSection("post")}
+                  </div>
+                </div>
+              </Section>
+
+              <Section title="Status BMI">
+                <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <DiagnosisField
+                    field={{
+                      label: "BB (kg)",
+                      value: state.bb,
+                      onChange: (v) => setState((s) => ({ ...s, bb: v })),
+                    }}
+                    isEditing={isEditing}
+                    kind="text"
+                  />
+                  <DiagnosisField
+                    field={{
+                      label: "TB (cm)",
+                      value: state.tb,
+                      onChange: (v) => setState((s) => ({ ...s, tb: v })),
+                    }}
+                    isEditing={isEditing}
+                    kind="text"
+                  />
+                  <DiagnosisField
+                    field={{
+                      label: "IMT",
+                      value: computeImt(state.bb, state.tb),
+                      onChange: () => undefined,
+                    }}
+                    isEditing={false}
+                    kind="text"
+                  />
+                  <DiagnosisField
+                    field={{
+                      label: "Kategori IMT",
+                      value: categorizeImt(computeImt(state.bb, state.tb)),
+                      onChange: () => undefined,
+                    }}
+                    isEditing={false}
+                    kind="text"
+                  />
+                  <DiagnosisField
+                    field={{
+                      label: "BSA (m²)",
+                      value: computeBsa(state.bb, state.tb),
+                      onChange: () => undefined,
+                    }}
+                    isEditing={false}
+                    kind="text"
+                  />
+                </div>
+              </Section>
+
+              <Section title="Siklus kemoterapi">
+                <div className="space-y-4">
+                  {state.liniList.map((lini, idx) => renderLiniCard(lini, idx))}
+                  {state.liniList.length === 0 ? (
+                    <div className="text-sm text-zinc-400">Belum ada data.</div>
+                  ) : null}
+                  {isEditing ? (
+                    <Button variant="secondary" size="sm" onClick={addLini}>
+                      + Tambah lini
+                    </Button>
+                  ) : null}
+                  <div className="border-t border-zinc-100 pt-4">
+                    <LongTextField
+                      label="Chemotherapy side effect"
+                      value={state.chemoSideEffect}
+                      onChange={(v) => setState((s) => ({ ...s, chemoSideEffect: v }))}
+                      isEditing={isEditing}
+                    />
+                  </div>
+                </div>
+              </Section>
+
+              <Section title="Radioterapi">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <DiagnosisField
+                      field={{
+                        label: "Radioterapi",
+                        value: state.radioterapi.radioterapi,
+                        onChange: (v) => updateRadioterapi({ radioterapi: v }),
+                        sheetHeader: col({ section: "radioterapi", field: "radioterapi" }),
+                      }}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={RADIOTERAPI_OPTIONS}
+                    />
+                    <DiagnosisField
+                      field={{
+                        label: "Dosis radioterapi",
+                        value: state.radioterapi.dosis,
+                        onChange: (v) => updateRadioterapi({ dosis: v }),
+                        sheetHeader: col({ section: "radioterapi", field: "dosis" }),
+                      }}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={DOSIS_RADIOTERAPI_OPTIONS}
+                    />
+                  </div>
+                  <DiagnosisField
+                    field={{
+                      label: "Respon radioterapi",
+                      value: state.radioterapi.respon,
+                      onChange: (v) => updateRadioterapi({ respon: v }),
+                    }}
+                    isEditing={isEditing}
+                    kind="text"
+                  />
+                </div>
+              </Section>
+
+              <Section title="Ringkasan & outcome">
+                <EditableGrid fields={outcomeFields} isEditing={isEditing} />
+              </Section>
+            </div>
+
+            {isEditing ? (
+              <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white/95 px-6 py-4 shadow-[0_20px_70px_-30px_rgba(0,0,0,0.35)] backdrop-blur">
+                <div>
+                  {confirmingDelete ? (
+                    <div className="flex items-center gap-2 text-sm text-zinc-700">
+                      Hapus data ini?
+                      <Button variant="danger" size="sm" onClick={handleDelete}>
+                        Ya, hapus
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setConfirmingDelete(false)}
+                      >
+                        Batal
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="danger"
+                      onClick={() => setConfirmingDelete(true)}
+                    >
+                      Delete
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  {savedMessage ? (
+                    <span className="text-xs text-zinc-500">{savedMessage}</span>
+                  ) : null}
+                  <Button variant="secondary" onClick={handleCancel}>
+                    Cancel
+                  </Button>
+                  <Button variant="warning" onClick={handleUpdate}>
+                    Update
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
-    </div>
+    </SheetDropdownsProvider>
   );
 }
 
@@ -1247,19 +1268,14 @@ function DiagnosisField({
         {field.label}
       </label>
       {isEditing ? (
-        kind === "select" && options?.length ? (
-          <select
-            value={selectValue(field.value, options)}
-            onChange={(e) => field.onChange(e.target.value)}
+        kind === "select" && (options?.length || field.sheetHeader) ? (
+          <OptionSelect
+            value={field.value}
+            onChange={field.onChange}
+            options={options ?? []}
+            sheetHeader={field.sheetHeader}
             className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
-          >
-            <option value="">-</option>
-            {selectOptions(field.value, options).map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
+          />
         ) : (
           <input
             type={kind === "date" ? "date" : "text"}
@@ -1275,23 +1291,6 @@ function DiagnosisField({
       )}
     </div>
   );
-}
-
-// Sheet values come in trimmed (and in any case), while some of the sheet's
-// own dropdown options carry stray spaces — match them loosely.
-function matchOption(value: string, options: string[]): string | undefined {
-  const v = value.trim().toLowerCase();
-  return options.find((o) => o.trim().toLowerCase() === v);
-}
-
-function selectValue(value: string, options: string[]): string {
-  return value ? (matchOption(value, options) ?? value) : "";
-}
-
-// Older free-text values that aren't one of the options stay selectable, so
-// opening the editor doesn't silently blank them.
-function selectOptions(value: string, options: string[]): string[] {
-  return value && !matchOption(value, options) ? [value, ...options] : options;
 }
 
 function BooleanBadge({ value }: { value: string }) {
@@ -1329,15 +1328,15 @@ function EditableHistoryTable({
               <td className="px-4 py-3 text-zinc-700">{item.label}</td>
               <td className="px-4 py-3 text-right">
                 {isEditing ? (
-                  <select
-                    value={item.value}
-                    onChange={(e) => item.onChange(e.target.value)}
-                    className="h-8 rounded-lg bg-white px-2 text-xs text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
-                  >
-                    <option value="">-</option>
-                    <option value="Ya">Ya</option>
-                    <option value="Tidak">Tidak</option>
-                  </select>
+                  <div className="inline-block text-left">
+                    <OptionSelect
+                      value={item.value}
+                      onChange={item.onChange}
+                      options={YA_TIDAK_OPTIONS}
+                      sheetHeader={item.sheetHeader}
+                      className="h-8 rounded-lg bg-white px-2 text-xs text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
+                    />
+                  </div>
                 ) : (
                   <BooleanBadge value={item.value} />
                 )}

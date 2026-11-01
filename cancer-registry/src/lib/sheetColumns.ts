@@ -119,6 +119,19 @@ export const SHEET_COLUMNS: SheetColumn[] = [
   { ref: { section: null, field: "tb" }, header: contains("tb (cm)") },
 ];
 
+function sameRef(a: FieldRef, b: FieldRef): boolean {
+  return (
+    a.section === b.section &&
+    a.field === b.field &&
+    (a.section !== "lini" || (b.section === "lini" && a.index === b.index))
+  );
+}
+
+// The sheet column a field is read from and written to, if this sheet has it.
+export function headerFor(ref: FieldRef, headers: string[]): string | undefined {
+  return SHEET_COLUMNS.find((c) => sameRef(c.ref, ref))?.header(headers);
+}
+
 export function readField(o: StoredOverride, ref: FieldRef): string | undefined {
   if (ref.section === null) return o[ref.field];
   if (ref.section === "lini") {
