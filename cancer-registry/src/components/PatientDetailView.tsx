@@ -1065,9 +1065,6 @@ export function PatientDetailView({
                   kind="text"
                 />
               </div>
-              <div className="mt-3 text-xs text-zinc-500">
-                BSA = &radic;[(BB &times; TB) / 3600], dihitung otomatis dari BB dan TB.
-              </div>
             </Section>
 
             <Section title="Siklus kemoterapi">
