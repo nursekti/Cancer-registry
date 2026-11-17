@@ -1,6 +1,7 @@
-// Fills the "Data NHL - Post Processing" tab with every patient in DATA NHL,
-// read the same way the web app reads a row (see cancer-registry/src/lib/
-// sheetColumns.ts), then tidied so every dropdown/date cell is valid:
+// Fills the "Data NHL - Post Processing" / "Data HL - Post Processing" tabs
+// with every patient in DATA NHL / DATA HL, read the same way the web app
+// reads a row (see cancer-registry/src/lib/sheetColumns.ts), then tidied so
+// every dropdown/date cell is valid:
 //   - spelling variants are mapped onto the dropdown's options
 //     ("unknown" -> "tidak diketahui", "lugano III" -> "III", "nodul" -> "nodal")
 //   - legitimate values missing from a dropdown are added to it (sub-stadia,
@@ -11,15 +12,20 @@
 //     and each Awal-akhir range into separate Awal / Akhir dates
 //   - Follow up terakhir is split into its date and a status (Meninggal (MD),
 //     Loss to follow up, Rujuk)
+//   - DATA HL has no BB/TB columns; they're read back from its IMT formulas
+//     ("=51/(1,7)^2")
 //
-// Run importNhlToPostProcessing() once from the editor. It replaces all data
-// rows (row 4 onward) except the formula columns (Jumlah komorbiditas,
-// ANC..PLR, IMT, Kategori IMT, BSA), which recompute by themselves. After that
-// the web app reads and writes this tab directly (see Code.gs).
+// Run importNhlToPostProcessing() / importHlToPostProcessing() once from the
+// editor. Each replaces all data rows (row 4 onward) of its tab except the
+// formula columns (Jumlah komorbiditas, ANC..PLR, IMT, Kategori IMT, BSA),
+// which recompute by themselves. After that the web app reads and writes the
+// tab directly (see Code.gs).
 
 // Tabs are found by their gid, so renaming them doesn't break the import.
-const PP_SHEET_ID = 803887597; // Data NHL - Post Processing
-const PP_SOURCE_ID = 0; // DATA NHL
+const PP_TARGETS = {
+  NHL: { label: "NHL", source: 0, target: 803887597, importedKey: "ppImportedAt" },
+  HL: { label: "HL", source: 188215245, target: 374219075, importedKey: "ppImportedAt:HL" },
+};
 const PP_FIRST_ROW = 4;
 const PP_COLUMNS = 88;
 // 0-based column ranges [start, end) that hold data; the gaps are formula columns.
@@ -104,37 +110,55 @@ const PP_EMPTY = ["", "-", "--", "?", "??", "—"];
 
 // --- entry point ----------------------------------------------------------------
 
-// Once imported, this tab is where the web app reads and writes NHL data, so a
-// second import would wipe those edits. It refuses to run again; use
-// reimportNhlAndOverwriteEdits() to rebuild the tab from DATA NHL on purpose.
-const PP_IMPORTED_KEY = "ppImportedAt";
-
+// Once imported, a tab is where the web app reads and writes that module's
+// data, so a second import would wipe those edits. It refuses to run again;
+// the reimport...AndOverwriteEdits() functions rebuild a tab on purpose.
 function importNhlToPostProcessing() {
-  const imported = PropertiesService.getScriptProperties().getProperty(PP_IMPORTED_KEY);
-  if (imported) {
-    throw new Error(
-      "Import sudah dijalankan (" + imported + "). Tab ini sekarang sumber data web, jadi import " +
-        "ulang akan menimpa semua edit. Kalau memang mau, jalankan reimportNhlAndOverwriteEdits().",
-    );
-  }
-  ppImport_();
+  ppImportOnce_(PP_TARGETS.NHL);
 }
 
 function reimportNhlAndOverwriteEdits() {
-  ppImport_();
+  ppImport_(PP_TARGETS.NHL);
 }
 
-function ppImport_() {
+function importHlToPostProcessing() {
+  ppImportOnce_(PP_TARGETS.HL);
+}
+
+function reimportHlAndOverwriteEdits() {
+  ppImport_(PP_TARGETS.HL);
+}
+
+function ppImportOnce_(target) {
+  const imported = PropertiesService.getScriptProperties().getProperty(target.importedKey);
+  if (imported) {
+    throw new Error(
+      "Import " + target.label + " sudah dijalankan (" + imported + "). Tab ini sekarang sumber " +
+        "data web, jadi import ulang akan menimpa semua edit. Kalau memang mau, jalankan reimport" +
+        (target.label === "NHL" ? "Nhl" : "Hl") + "AndOverwriteEdits().",
+    );
+  }
+  ppImport_(target);
+}
+
+// Key under which a row carries its IMT cell's formula (for DATA HL's BB/TB).
+const PP_IMT_FORMULA = "__imtFormula";
+
+function ppImport_(target) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const dst = ppSheetById_(ss, PP_SHEET_ID);
-  const values = ppSheetById_(ss, PP_SOURCE_ID).getDataRange().getDisplayValues();
+  const dst = ppSheetById_(ss, target.target);
+  const sourceRange = ppSheetById_(ss, target.source).getDataRange();
+  const values = sourceRange.getDisplayValues();
+  const formulas = sourceRange.getFormulas();
   const headers = values[0];
+  const imtCol = headers.findIndex((h) => h.toLowerCase().includes("imt (kg"));
   // Same as the web app: values trimmed, rows without a name or ERM skipped.
   const rows = values
     .slice(1)
-    .map((r) => {
+    .map((r, i) => {
       const row = {};
-      headers.forEach((h, i) => (row[h] = String(r[i] == null ? "" : r[i]).trim()));
+      headers.forEach((h, j) => (row[h] = String(r[j] == null ? "" : r[j]).trim()));
+      row[PP_IMT_FORMULA] = imtCol >= 0 ? String(formulas[i + 1][imtCol] || "") : "";
       return row;
     })
     .filter((r) => r[ppExact_(headers, "nama")] || r[ppExact_(headers, "no erm")]);
@@ -156,10 +180,10 @@ function ppImport_() {
     dst.getRange(PP_FIRST_ROW, a + 1, out.length, b - a).setValues(out.map((row) => row.slice(a, b)));
   });
   SpreadsheetApp.flush();
-  PropertiesService.getScriptProperties().setProperty(PP_IMPORTED_KEY, new Date().toISOString());
+  PropertiesService.getScriptProperties().setProperty(target.importedKey, new Date().toISOString());
   const withNotes = out.filter((row) => row[PP_COLUMNS - 1]).length;
   Logger.log(
-    "OK: " + out.length + " pasien NHL ditulis ke " + dst.getName() + " (" + withNotes +
+    "OK: " + out.length + " pasien " + target.label + " ditulis ke " + dst.getName() + " (" + withNotes +
       " dengan Catatan data).",
   );
 }
@@ -259,6 +283,7 @@ function ppBuildRow_(r, headers) {
     ];
   });
   const followUp = ppFollowUp_(c("follow up terakhir"));
+  const body = ppBodySize_(r, headers);
   if (followUp.note) notes.push("Follow up terakhir: " + followUp.note);
 
   const row = [
@@ -284,7 +309,7 @@ function ppBuildRow_(r, headers) {
     // Pre-kemo stadium/metastasis; exams (pre/during/post) aren't in the sheet
     stadium.value, metastasis.value, "", "", "", "", "", "", "", "", "",
     // Status BMI: BB, TB, then IMT/Kategori/BSA formula columns
-    ppNum_(c("bb (kg)")), ppNum_(c("tb (cm)")), null, null, null,
+    body.bb, body.tb, null, null, null,
     // Siklus kemoterapi: lini 1, 2, 3 (siklus, rejimen, obat, awal, akhir, respon), side effect
     ...lini[0], ...lini[1], ...lini[2],
     c("side effect"),
@@ -402,6 +427,27 @@ function ppDate_(day, month, year) {
   const y = year.length === 2 ? 2000 + Number(year) : Number(year);
   if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
   return new Date(y, mo - 1, d);
+}
+
+// BB/TB: their own columns when the sheet has them (DATA NHL); otherwise
+// (DATA HL) read back from the IMT formula "=BB/(TB in m)^2", e.g.
+// "=51/(1,7)^2" -> 51 kg, 170 cm. Same parsing as the web app's
+// fetchImtFormulas.
+function ppBodySize_(r, headers) {
+  if (ppContains_(headers, "bb (kg)") || ppContains_(headers, "tb (cm)")) {
+    return {
+      bb: ppNum_(ppGet_(r, ppContains_(headers, "bb (kg)"))),
+      tb: ppNum_(ppGet_(r, ppContains_(headers, "tb (cm)"))),
+    };
+  }
+  const m = String(r[PP_IMT_FORMULA] || "").match(
+    /^=\s*([\d.,]+)\s*\/\s*\(?\s*([\d.,]+)\s*\)?\s*\^\s*2/,
+  );
+  if (!m) return { bb: "", tb: "" };
+  const bb = Number(m[1].replace(",", "."));
+  const tbM = Number(m[2].replace(",", "."));
+  if (!(bb > 0) || !(tbM > 0)) return { bb: "", tb: "" };
+  return { bb: bb, tb: Math.round(tbM * 1000) / 10 };
 }
 
 // Plain numbers ("14,6", "249") become numbers so the formula columns can use
