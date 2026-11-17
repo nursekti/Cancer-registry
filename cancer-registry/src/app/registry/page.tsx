@@ -32,6 +32,7 @@ import {
   isEmptyRow,
   loadOverrides,
   mapKesimpulanToStatus,
+  rowField,
   rowKey,
 } from "@/lib/rowOverrides";
 import { exportToCsv, exportToPdf, exportToXlsx } from "@/lib/exportTable";
@@ -196,8 +197,8 @@ function RegistryListPageInner() {
       if (qq) {
         const hay = [
           findExactHeaderValue(r, headers, "nama"),
-          r["NO ERM"],
-          r["NIK"],
+          rowField(r, "NO ERM"),
+          rowField(r, "NIK"),
         ]
           .join(" ")
           .toLowerCase();

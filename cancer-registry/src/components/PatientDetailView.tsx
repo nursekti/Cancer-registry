@@ -3,16 +3,18 @@
 import * as React from "react";
 import Link from "next/link";
 import { DatedEntriesField, LongTextField } from "@/components/LongText";
-import { OptionSelect, SheetDropdownsProvider } from "@/components/OptionSelect";
+import { MultiOptionSelect, OptionSelect, SheetDropdownsProvider } from "@/components/OptionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 import { loadAddedRows } from "@/lib/addedRows";
 import { fetchImtFormulas } from "@/lib/fetchImtFormulas";
+import { formatDmy, toIsoDate } from "@/lib/datedEntries";
 import {
   DOSIS_RADIOTERAPI_OPTIONS,
   ECOG_OPTIONS,
+  EXAM_TYPE_OPTIONS,
   JK_OPTIONS,
   METASTASIS_OPTIONS,
   NODAL_TYPE_OPTIONS,
@@ -20,10 +22,12 @@ import {
   RADIOTERAPI_OPTIONS,
   RESPON_KEMOTERAPI_OPTIONS,
   STADIUM_OPTIONS,
+  STATUS_FOLLOW_UP_OPTIONS,
   optionsForType,
   rejimenOptions,
 } from "@/lib/fieldOptions";
-import { FieldRef, headerFor, seedFromSheet } from "@/lib/sheetColumns";
+import { parseSiklusCount, splitRegimen } from "@/lib/regimen";
+import { FieldRef, hasSplitLiniColumns, headerFor, seedFromSheet } from "@/lib/sheetColumns";
 import {
   applySheetUpdates,
   sheetUpdatesFor,
@@ -52,6 +56,7 @@ import {
   markDeleted,
   mergeOverride,
   newId,
+  rowField,
   rowKey,
   saveOverride,
 } from "@/lib/rowOverrides";
@@ -66,69 +71,16 @@ type Field = {
   sheetHeader?: string;
 };
 
-const EXAM_TYPE_OPTIONS = ["CT scan", "Rontgen", "USG", "Bone survey"];
 const YA_TIDAK_OPTIONS = ["Ya", "Tidak"];
-
-const DOSE_PATTERN = /\d+(?:[.,]\d+)?\s*(?:mg|mcg|g|gr|ml|cc|iu|unit)\b/i;
-
-// Real regimen entries embed the dose in the drug text itself (e.g.
-// "Doxorubicin 35 mg selesai"). Pull the dose out into its own field and
-// leave the rest (drug name plus any trailing notes) as the name.
-function parseDrugDose(text: string): { nama: string; dosis: string } {
-  const match = text.match(DOSE_PATTERN);
-  if (!match || match.index === undefined) {
-    return { nama: text.trim(), dosis: "" };
-  }
-  const dosis = match[0].replace(/\s+/g, " ").trim();
-  const nama = (text.slice(0, match.index) + text.slice(match.index + match[0].length))
-    .replace(/\s+/g, " ")
-    .trim();
-  return { nama, dosis };
-}
-
-function splitRegimen(regimen: string): DrugRow[] {
-  const trimmed = regimen.trim();
-  if (!trimmed) return [];
-
-  // Real regimen text tends to look like "Doxorubicin 34mg (H1)Vincristin 1,5mg
-  // (H1)..." — one entry per drug, each ending in a "(H..)" cycle marker and no
-  // separator before the next drug name. Splitting on ")" keeps each drug's
-  // name/dose/cycle together without breaking decimal commas (e.g. "1,5mg").
-  const parts = /\)/.test(trimmed)
-    ? trimmed
-        .split(/\)(?!\s*$)/)
-        .map((p) => p.trim())
-        .filter(Boolean)
-        .map((p) => (p.endsWith(")") ? p : `${p})`))
-    : trimmed
-        .split(/[\n;]+|\s+\+\s+/)
-        .map((p) => p.trim())
-        .filter(Boolean);
-
-  if (!parts.length) return [];
-  return parts.map((part) => ({ id: newId(), ...parseDrugDose(part) }));
-}
-
-// The sheet's Siklus column is a free-text blurb ("LINI I (16 Siklus),"
-// or "...Lini 1 Siklus 12 dengan..."). Pull out just the cycle count so the
-// field reads as a plain "Siklus N".
-function parseSiklusCount(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "";
-  const after = trimmed.match(/siklus\s*(\d+)/i);
-  if (after) return `Siklus ${after[1]}`;
-  const before = trimmed.match(/(\d+)\s*siklus/i);
-  if (before) return `Siklus ${before[1]}`;
-  return trimmed;
-}
 
 function buildInitialOverride(row: Row, headers: string[]): RowOverride {
   const base = emptyOverride();
   seedFromSheet(base, row, headers);
+  if (hasSplitLiniColumns(headers)) return base;
 
-  // The sheet's Regimen/Siklus columns are free text describing the first
-  // line of therapy; the rest of lini 1 (and lini 2, when the sheet has it)
-  // comes from its own columns via seedFromSheet.
+  // The original sheets' Regimen/Siklus columns are free text describing the
+  // first line of therapy; the rest of lini 1 (and lini 2, when the sheet has
+  // it) comes from its own columns via seedFromSheet.
   const regimen = findHeaderValue(row, headers, "regimen kemoterapi");
   const lini1 = base.liniList[0] ?? emptyLini();
   base.liniList[0] = {
@@ -191,7 +143,7 @@ export function PatientDetailView({
     fetchImtFormulas(csvUrl)
       .then((map) => {
         if (cancelled || !map) return;
-        const noErm = row["NO ERM"]?.trim();
+        const noErm = rowField(row, "NO ERM").trim();
         const derived = noErm ? map[noErm] : undefined;
         if (!derived) return;
         setBaseline((b) => (b.bb || b.tb ? b : { ...b, bb: derived.bb, tb: derived.tbCm }));
@@ -488,6 +440,9 @@ export function PatientDetailView({
   ];
 
   const typeOptions = optionsForType(cancerType);
+  // The tidied sheet has separate Awal/Akhir dates per lini and a follow-up
+  // date + status; the original sheets have single free-text cells.
+  const splitLini = hasSplitLiniColumns(headers);
 
   const leaderField: Field = {
     label: "Leader",
@@ -791,16 +746,39 @@ export function PatientDetailView({
           ) : null}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <DiagnosisField
-            field={{
-              label: "Awal-akhir kemoterapi",
-              value: entry.awalAkhirKemoterapi,
-              onChange: (v) => updateLini(entry.id, { awalAkhirKemoterapi: v }),
-            }}
-            isEditing={isEditing}
-            kind="text"
-          />
+        <div className={cn("grid gap-3", splitLini ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+          {splitLini ? (
+            <>
+              <DiagnosisField
+                field={{
+                  label: "Awal kemoterapi",
+                  value: entry.awal,
+                  onChange: (v) => updateLini(entry.id, { awal: v }),
+                }}
+                isEditing={isEditing}
+                kind="date"
+              />
+              <DiagnosisField
+                field={{
+                  label: "Akhir kemoterapi",
+                  value: entry.akhir,
+                  onChange: (v) => updateLini(entry.id, { akhir: v }),
+                }}
+                isEditing={isEditing}
+                kind="date"
+              />
+            </>
+          ) : (
+            <DiagnosisField
+              field={{
+                label: "Awal-akhir kemoterapi",
+                value: entry.awalAkhirKemoterapi,
+                onChange: (v) => updateLini(entry.id, { awalAkhirKemoterapi: v }),
+              }}
+              isEditing={isEditing}
+              kind="text"
+            />
+          )}
           <DiagnosisField
             field={{
               label: "Respon kemoterapi",
@@ -817,12 +795,19 @@ export function PatientDetailView({
     );
   }
 
+  const followUpField: Field = {
+    label: splitLini ? "Tanggal follow up terakhir" : "Follow up terakhir",
+    value: state.outcome.followUpTerakhir,
+    onChange: (v) => updateOutcome({ followUpTerakhir: v }),
+  };
+  const statusFollowUpField: Field = {
+    label: "Status follow up",
+    value: state.outcome.statusFollowUp,
+    onChange: (v) => updateOutcome({ statusFollowUp: v }),
+    sheetHeader: col({ section: "outcome", field: "statusFollowUp" }),
+  };
+
   const outcomeFields: Field[] = [
-    {
-      label: "Follow up terakhir",
-      value: state.outcome.followUpTerakhir,
-      onChange: (v) => updateOutcome({ followUpTerakhir: v }),
-    },
     {
       label: "Status remission/refrakter/relapse",
       value: state.outcome.statusRemission,
@@ -989,6 +974,15 @@ export function PatientDetailView({
                   </div>
                   <EditableHistoryTable items={[doublePrimaryField]} isEditing={isEditing} />
                 </div>
+
+                <div className="mt-5">
+                  <LongTextField
+                    label="Catatan riwayat"
+                    value={state.riwayat.catatan}
+                    onChange={(v) => updateRiwayat({ catatan: v })}
+                    isEditing={isEditing}
+                  />
+                </div>
               </Section>
 
               <Section title="Pemeriksaan penunjang">
@@ -1015,12 +1009,23 @@ export function PatientDetailView({
                         kind="select"
                         options={STADIUM_OPTIONS}
                       />
-                      <DiagnosisField
-                        field={metastasisField}
-                        isEditing={isEditing}
-                        kind="select"
-                        options={METASTASIS_OPTIONS}
-                      />
+                      <div className="min-w-0">
+                        <label className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                          {metastasisField.label}
+                        </label>
+                        {isEditing ? (
+                          <MultiOptionSelect
+                            value={metastasisField.value}
+                            onChange={metastasisField.onChange}
+                            options={METASTASIS_OPTIONS}
+                            sheetHeader={metastasisField.sheetHeader}
+                          />
+                        ) : (
+                          <div className="break-words text-sm font-medium text-zinc-900">
+                            {metastasisField.value || <span className="text-zinc-400">-</span>}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     {renderPhaseSection("pre")}
                   </div>
@@ -1146,7 +1151,28 @@ export function PatientDetailView({
               </Section>
 
               <Section title="Ringkasan & outcome">
-                <EditableGrid fields={outcomeFields} isEditing={isEditing} />
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <DiagnosisField
+                      field={followUpField}
+                      isEditing={isEditing}
+                      kind={splitLini ? "date" : "text"}
+                    />
+                    <DiagnosisField
+                      field={statusFollowUpField}
+                      isEditing={isEditing}
+                      kind="select"
+                      options={STATUS_FOLLOW_UP_OPTIONS}
+                    />
+                  </div>
+                  <EditableGrid fields={outcomeFields} isEditing={isEditing} />
+                  <LongTextField
+                    label="Catatan data"
+                    value={state.catatanData}
+                    onChange={(v) => setState((s) => ({ ...s, catatanData: v }))}
+                    isEditing={isEditing}
+                  />
+                </div>
               </Section>
             </div>
 
@@ -1276,9 +1302,19 @@ function DiagnosisField({
             sheetHeader={field.sheetHeader}
             className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
           />
-        ) : (
+        ) : kind === "date" && (!field.value || toIsoDate(field.value)) ? (
+          // Dates are kept as the sheet writes them ("07/02/2023"); the
+          // browser's date picker works in yyyy-mm-dd.
           <input
-            type={kind === "date" ? "date" : "text"}
+            type="date"
+            value={toIsoDate(field.value) ?? ""}
+            onChange={(e) => field.onChange(e.target.value ? formatDmy(e.target.value) : "")}
+            className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
+          />
+        ) : (
+          // Text that isn't a date ("2016", "belum tegak dx") stays editable as text.
+          <input
+            type="text"
             value={field.value}
             onChange={(e) => field.onChange(e.target.value)}
             className="mt-1 h-9 w-full rounded-lg bg-white px-2.5 text-sm text-zinc-900 ring-1 ring-inset ring-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent-500"
@@ -1286,7 +1322,9 @@ function DiagnosisField({
         )
       ) : (
         <div className="break-words text-sm font-medium text-zinc-900">
-          {field.value || <span className="text-zinc-400">-</span>}
+          {(kind === "date" && toIsoDate(field.value) ? formatDmy(toIsoDate(field.value)!) : field.value) || (
+            <span className="text-zinc-400">-</span>
+          )}
         </div>
       )}
     </div>

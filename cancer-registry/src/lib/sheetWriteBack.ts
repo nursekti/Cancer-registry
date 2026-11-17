@@ -4,7 +4,7 @@
 
 import { cacheCsv, readCsvCache } from "@/lib/csvCache";
 import { parseGid, parseSpreadsheetId } from "@/lib/fetchImtFormulas";
-import { RowOverride, StoredOverride, rowKey } from "@/lib/rowOverrides";
+import { RowOverride, StoredOverride, rowField, rowKey } from "@/lib/rowOverrides";
 import { SheetUpdate, readField, setField } from "@/lib/sheetColumns";
 
 export { sheetUpdatesFor } from "@/lib/sheetColumns";
@@ -32,7 +32,7 @@ export function applySheetUpdates(
 // else NAMA.
 function matchFor(row: Row): { header: string; value: string } {
   for (const header of ["NO ERM", "NIK", "NAMA"]) {
-    const value = row[header]?.trim();
+    const value = rowField(row, header).trim();
     if (value) return { header, value };
   }
   throw new Error("Baris tidak punya NO ERM, NIK, atau NAMA");

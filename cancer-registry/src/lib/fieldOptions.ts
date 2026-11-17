@@ -137,7 +137,16 @@ export const DOSIS_RADIOTERAPI_OPTIONS = [
   "Not Specified",
 ];
 
+export const EXAM_TYPE_OPTIONS = ["CT scan", "Rontgen", "USG", "Bone survey"];
+
+export const STATUS_FOLLOW_UP_OPTIONS = ["Hidup", "Meninggal (MD)", "Loss to follow up", "Rujuk"];
+
 export const ECOG_OPTIONS = ["0", "1", "2", "3", "4"];
-export const STADIUM_OPTIONS = ["I", "II", "III", "IV"];
+// Ann-Arbor stages incl. the sub-stages seen in DATA NHL; same list as the
+// Stadium dropdown in the "Data NHL - Post Processing" tab.
+export const STADIUM_OPTIONS = [
+  "I", "IA", "IB", "IE", "II", "IIA", "IIB", "IIE", "III", "IIIA", "IIIB", "IIIE",
+  "IV", "IVA", "IVB", "IVE", "tidak diketahui",
+];
 export const JK_OPTIONS = ["Laki - Laki", "Perempuan"];
 export const PENDIDIKAN_OPTIONS = ["SD", "SLTP", "SMP", "SLTA", "SMA", "Diploma", "S1", "S2", "S3"];

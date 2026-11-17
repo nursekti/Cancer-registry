@@ -20,7 +20,10 @@ function buildScratchRow(
     noHp: string;
   },
 ): Row {
-  const row: Row = { NAMA: values.nama, "NO ERM": values.noErm };
+  // Use the sheet's own spelling of the key columns ("NAMA" / "Nama", ...).
+  const exactHeader = (name: string) =>
+    headers.find((h) => h.trim().toLowerCase() === name.toLowerCase()) ?? name;
+  const row: Row = { [exactHeader("NAMA")]: values.nama, [exactHeader("NO ERM")]: values.noErm };
 
   const setByNeedle = (needle: string, value: string) => {
     if (!value) return;

@@ -9,6 +9,9 @@ export type CancerTypeConfig = {
 
 export const LS_CANCER_TYPES = "cr_cancer_types";
 
+const SPREADSHEET_ID = "10tlI23LbJ4hiAZpeSygoxqtCu-XQrfxVLhgp7iqwkZc";
+const NHL_POST_PROCESSING_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit?gid=803887597#gid=803887597`;
+
 const DEFAULT_CANCER_TYPES: CancerTypeConfig[] = [
   {
     id: "HL",
@@ -21,17 +24,27 @@ const DEFAULT_CANCER_TYPES: CancerTypeConfig[] = [
     id: "NHL",
     label: "NHL",
     description: "Non-Hodgkin Lymphoma",
-    csvUrl:
-      "https://docs.google.com/spreadsheets/d/10tlI23LbJ4hiAZpeSygoxqtCu-XQrfxVLhgp7iqwkZc/edit?gid=0#gid=0",
+    csvUrl: NHL_POST_PROCESSING_URL,
   },
 ];
+
+// NHL now reads and writes the tidied "Data NHL - Post Processing" tab
+// instead of DATA NHL (gid 0); saved module lists still pointing at DATA NHL
+// are moved over.
+function migrateNhlSource(list: CancerTypeConfig[]): CancerTypeConfig[] {
+  return list.map((t) =>
+    t.id === "NHL" && t.csvUrl.includes(SPREADSHEET_ID) && /[?#&]gid=0\b/.test(t.csvUrl)
+      ? { ...t, csvUrl: NHL_POST_PROCESSING_URL }
+      : t,
+  );
+}
 
 export function loadCancerTypes(): CancerTypeConfig[] {
   const raw = getLocalStorageItem(LS_CANCER_TYPES);
   if (!raw) return DEFAULT_CANCER_TYPES;
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? (parsed as CancerTypeConfig[]) : DEFAULT_CANCER_TYPES;
+    return Array.isArray(parsed) ? migrateNhlSource(parsed as CancerTypeConfig[]) : DEFAULT_CANCER_TYPES;
   } catch {
     return DEFAULT_CANCER_TYPES;
   }

@@ -64,6 +64,8 @@ export type RiwayatFields = {
   ppok: string;
   hiv: string;
   doublePrimary: string;
+  // Remarks that came with a Ya/Tidak answer ("HT: amlodipin 10mg").
+  catatan: string;
 };
 
 // The baseline lab panel. The sheet has a single set of these columns, so
@@ -82,6 +84,7 @@ export type LabFields = {
 
 export type OutcomeFields = {
   followUpTerakhir: string;
+  statusFollowUp: string;
   statusRemission: string;
   lostToFollowUp: string;
   timeToEvent: string;
@@ -114,6 +117,10 @@ export type LiniEntry = {
   rejimen: string;
   regimen: string;
   drugs: DrugRow[];
+  // Sheets with separate date columns (Data NHL - Post Processing) use
+  // awal/akhir; older sheets keep the single free-text awal-akhir cell.
+  awal: string;
+  akhir: string;
   awalAkhirKemoterapi: string;
   responKemoterapi: string;
 };
@@ -130,6 +137,8 @@ export type RowOverride = {
   checkups: CheckupEntry[];
   liniList: LiniEntry[];
   chemoSideEffect: string;
+  // Original values that didn't fit their column, kept by the sheet import.
+  catatanData: string;
   bb: string;
   tb: string;
 };
@@ -180,16 +189,27 @@ export function emptyLini(): LiniEntry {
     rejimen: "",
     regimen: "",
     drugs: [],
+    awal: "",
+    akhir: "",
     awalAkhirKemoterapi: "",
     responKemoterapi: "",
   };
 }
 
+// A row's value for a column, matching the header case-insensitively (the
+// sheets spell it "NO ERM", "No ERM", "NAMA", "nama", ...).
+export function rowField(row: Record<string, string>, name: string): string {
+  if (row[name] !== undefined) return row[name];
+  const target = name.toLowerCase();
+  const key = Object.keys(row).find((k) => k.trim().toLowerCase() === target);
+  return key ? row[key] : "";
+}
+
 export function rowKey(row: Record<string, string>): string {
   return (
-    row["NO ERM"]?.trim() ||
-    row["NIK"]?.trim() ||
-    row["NAMA"]?.trim() ||
+    rowField(row, "NO ERM").trim() ||
+    rowField(row, "NIK").trim() ||
+    rowField(row, "NAMA").trim() ||
     JSON.stringify(row)
   );
 }
@@ -233,7 +253,7 @@ export function findExactHeaderValue(
 // ratio columns even though there's no real patient behind the row. Either
 // way, a row with no name and no ERM number isn't a real record.
 export function isEmptyRow(row: Record<string, string>): boolean {
-  return !row["NAMA"]?.trim() && !row["NO ERM"]?.trim();
+  return !rowField(row, "NAMA").trim() && !rowField(row, "NO ERM").trim();
 }
 
 export function loadOverrides(): OverrideMap {
@@ -298,6 +318,7 @@ export function emptyOverride(): RowOverride {
       ppok: "",
       hiv: "",
       doublePrimary: "",
+      catatan: "",
     },
     lab: {
       hb: "",
@@ -312,6 +333,7 @@ export function emptyOverride(): RowOverride {
     },
     outcome: {
       followUpTerakhir: "",
+      statusFollowUp: "",
       statusRemission: "",
       lostToFollowUp: "",
       timeToEvent: "",
@@ -325,6 +347,7 @@ export function emptyOverride(): RowOverride {
     checkups: [],
     liniList: [],
     chemoSideEffect: "",
+    catatanData: "",
     bb: "",
     tb: "",
   };
@@ -365,7 +388,12 @@ function migrateLegacy(stored: StoredOverride): StoredOverride {
       out.outcome = { ...stored.outcome, followUpTerakhir: followUp };
     }
     out.liniList = liniList.map((legacy) => {
-      const l: LegacyLini = { ...legacy, rejimen: legacy.rejimen ?? "" };
+      const l: LegacyLini = {
+        ...legacy,
+        rejimen: legacy.rejimen ?? "",
+        awal: legacy.awal ?? "",
+        akhir: legacy.akhir ?? "",
+      };
       delete l.followUpTerakhir;
       return l;
     });
@@ -423,7 +451,7 @@ export function diffOverride(base: RowOverride, next: RowOverride): StoredOverri
   if (!sameIgnoringIds(base.checkups, next.checkups)) out.checkups = next.checkups;
   if (!sameIgnoringIds(base.liniList, next.liniList)) out.liniList = next.liniList;
 
-  for (const k of ["chemoSideEffect", "bb", "tb"] as const) {
+  for (const k of ["chemoSideEffect", "catatanData", "bb", "tb"] as const) {
     if (next[k] !== base[k]) out[k] = next[k];
   }
   return out;

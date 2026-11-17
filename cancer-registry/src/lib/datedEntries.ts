@@ -11,12 +11,21 @@ const DATE_RE = /\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})\b/;
 // sentence of the report stays part of the text.
 const MAX_DATE_LINE_LENGTH = 60;
 
-function toIsoDate(day: string, month: string, year: string): string | null {
+function isoFromParts(day: string, month: string, year: string): string | null {
   const d = Number(day);
   const m = Number(month);
   const y = year.length === 2 ? 2000 + Number(year) : Number(year);
   if (m < 1 || m > 12 || d < 1 || d > 31) return null;
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+// A whole-cell date as the sheets show it ("07/02/2023", "7/2/23") or as a
+// date input gives it ("2023-02-07"), as yyyy-mm-dd; null for anything else.
+export function toIsoDate(value: string): string | null {
+  const v = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const m = v.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})$/);
+  return m ? isoFromParts(m[1], m[2], m[3]) : null;
 }
 
 export function formatDmy(iso: string): string {
@@ -30,7 +39,7 @@ export function parseDatedEntries(text: string): DatedEntry[] {
 
   for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
     const match = line.length <= MAX_DATE_LINE_LENGTH ? line.match(DATE_RE) : null;
-    const iso = match ? toIsoDate(match[1], match[2], match[3]) : null;
+    const iso = match ? isoFromParts(match[1], match[2], match[3]) : null;
     if (match && iso) {
       if (current) entries.push(current);
       // Keep what else the date line says ("PA biopsi insisi R. Bucal (S)"),
