@@ -59,8 +59,36 @@ function sheetByGid_(ss, gid) {
   return sheet;
 }
 
-function headerRow_(sheet) {
-  return sheet.getRange(HEADER_ROW, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+// Most tabs have one header row. Tidied tabs like "Data NHL - Post Processing"
+// have three (section, group, field) with data from row 4; their columns are
+// keyed like the web app's groupedHeaders (cancer-registry/src/lib/csv.ts):
+// the field name, or "Group › Field" when the field name repeats.
+function layout_(sheet) {
+  const lastCol = sheet.getLastColumn();
+  const top = sheet.getRange(1, 1, Math.min(3, sheet.getMaxRows()), lastCol).getDisplayValues();
+  if (top.length === 3 && String(top[0][0]).trim().toLowerCase() === "identitas pasien") {
+    return { headerRow: 3, headers: groupedHeaders_(top[0], top[1], top[2]) };
+  }
+  return { headerRow: HEADER_ROW, headers: top[0] };
+}
+
+function groupedHeaders_(sections, groups, fields) {
+  const clean = (row) => row.map((v) => String(v).trim());
+  const s = clean(sections);
+  const g = clean(groups);
+  const f = clean(fields);
+  const counts = {};
+  f.forEach((name) => {
+    if (name) counts[name] = (counts[name] || 0) + 1;
+  });
+  let group = "";
+  return f.map((name, i) => {
+    // Merged cells only hold their value in the first column.
+    if (s[i]) group = "";
+    if (g[i]) group = g[i];
+    if (!name) return "";
+    return counts[name] > 1 && group ? group + " › " + name : name;
+  });
 }
 
 function handle_(body) {
@@ -71,20 +99,21 @@ function handle_(body) {
   lock.waitLock(10000);
   try {
     const lastRow = sheet.getLastRow();
-    const headers = headerRow_(sheet).map((h) => normalizeHeader_(h));
+    const layout = layout_(sheet);
+    const headers = layout.headers.map((h) => normalizeHeader_(h));
     const colOf = (name) => headers.indexOf(normalizeHeader_(name)) + 1;
 
     const matchCol = colOf(body.match.header);
     if (!matchCol) throw new Error("Kolom " + body.match.header + " tidak ditemukan");
-    if (lastRow <= HEADER_ROW) throw new Error("Sheet tidak punya baris data");
+    if (lastRow <= layout.headerRow) throw new Error("Sheet tidak punya baris data");
 
     const target = String(body.match.value).trim();
     const keys = sheet
-      .getRange(HEADER_ROW + 1, matchCol, lastRow - HEADER_ROW, 1)
+      .getRange(layout.headerRow + 1, matchCol, lastRow - layout.headerRow, 1)
       .getDisplayValues();
     const hits = [];
     keys.forEach((r, i) => {
-      if (r[0].trim() === target) hits.push(HEADER_ROW + 1 + i);
+      if (r[0].trim() === target) hits.push(layout.headerRow + 1 + i);
     });
     if (!hits.length) throw new Error("Baris pasien tidak ditemukan di spreadsheet");
     if (hits.length > 1) {
@@ -120,6 +149,15 @@ function handle_(body) {
 // A column's dropdown is either a typed column of a Table (Table1 in DATA NHL)
 // or a plain "dropdown from a list" data validation (DATA HL). Tables are only
 // reachable through the Sheets REST API, so those calls go through UrlFetchApp.
+
+// Run once from the editor (pick "authorize" in the function list → Run) to
+// grant the permissions the dropdown feature needs — a web app deployment
+// never asks for new permissions by itself.
+function authorize() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  sheetsApi_("get", ss.getId() + "?fields=spreadsheetId");
+  Logger.log("OK: Sheets API bisa diakses.");
+}
 
 function sheetsApi_(method, path, payload) {
   const options = {
@@ -170,17 +208,20 @@ function isListRule_(rule) {
 }
 
 function dropdowns_(ss, sheet) {
-  const headers = headerRow_(sheet);
+  const layout = layout_(sheet);
+  const headers = layout.headers;
   const out = {};
-  const firstRow = sheet.getRange(HEADER_ROW + 1, 1, 1, headers.length).getDataValidations()[0];
+  const firstRow = sheet
+    .getRange(layout.headerRow + 1, 1, 1, headers.length)
+    .getDataValidations()[0];
   firstRow.forEach((rule, i) => {
-    if (isListRule_(rule)) out[headers[i]] = rule.getCriteriaValues()[0].map(String);
+    if (headers[i] && isListRule_(rule)) out[headers[i]] = rule.getCriteriaValues()[0].map(String);
   });
   const tables = tables_(ss, sheet);
   headers.forEach((h, i) => {
     const hit = tableColumn_(tables, i);
     const cond = hit && listCondition_(hit.column);
-    if (cond) out[h] = (cond.values || []).map((v) => v.userEnteredValue);
+    if (h && cond) out[h] = (cond.values || []).map((v) => v.userEnteredValue);
   });
   return out;
 }
@@ -199,7 +240,8 @@ function addOption_(body) {
   const lock = LockService.getDocumentLock();
   lock.waitLock(10000);
   try {
-    const col = headerRow_(sheet)
+    const layout = layout_(sheet);
+    const col = layout.headers
       .map((h) => normalizeHeader_(h))
       .indexOf(normalizeHeader_(body.header));
     if (col < 0) throw new Error("Kolom " + body.header + " tidak ditemukan");
@@ -225,7 +267,12 @@ function addOption_(body) {
       return { ok: true, options: cond.values.map((v) => v.userEnteredValue) };
     }
 
-    const range = sheet.getRange(HEADER_ROW + 1, col + 1, sheet.getMaxRows() - HEADER_ROW, 1);
+    const range = sheet.getRange(
+      layout.headerRow + 1,
+      col + 1,
+      sheet.getMaxRows() - layout.headerRow,
+      1,
+    );
     const rules = range.getDataValidations();
     const first = rules.map((r) => r[0]).find(isListRule_);
     if (!first) throw new Error("Kolom ini tidak punya dropdown di spreadsheet");

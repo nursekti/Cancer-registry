@@ -24,11 +24,29 @@ This keeps the same URL. Creating a *new* deployment instead gives a new URL.
 If Google asks to authorize again (new permissions), accept — the dropdown
 feature calls the Sheets API, which needs "connect to an external service".
 
+### Where the data lives
+
+- **NHL**: the web app reads and writes the **Data NHL - Post Processing** tab
+  (three header rows; columns keyed like `Lini 2 › Respon kemoterapi`). That tab
+  was built once from DATA NHL by `ImportPostProcessing.gs`; edits made directly
+  in DATA NHL no longer reach the web app.
+- **HL**: still DATA HL (one header row).
+
 ### What it writes
 
 - Only plain columns of the patient's row, found by `NO ERM` (or `NIK`/`NAMA` when empty).
 - Cells that contain a formula are never overwritten; they come back as `skipped`.
-- Pemeriksaan penunjang exams and the drug list are not written — they stay in the browser.
+- In the Post Processing tab, each lini's fields (incl. the drug list, one per
+  line) and the first exam of each phase (pre/during/post) are written too.
+  Further exams of a phase stay in the browser. In DATA NHL / DATA HL, exams
+  and drug lists are not written.
+
+### Building the Post Processing tab (`ImportPostProcessing.gs`)
+
+Run `importNhlToPostProcessing()` once from the editor. It refuses to run a
+second time, because the tab is now the source of truth and a re-import would
+overwrite every edit. To rebuild it from DATA NHL anyway, run
+`reimportNhlAndOverwriteEdits()`.
 
 ### Dropdowns
 
