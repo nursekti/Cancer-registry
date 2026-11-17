@@ -10,33 +10,43 @@ export type CancerTypeConfig = {
 export const LS_CANCER_TYPES = "cr_cancer_types";
 
 const SPREADSHEET_ID = "10tlI23LbJ4hiAZpeSygoxqtCu-XQrfxVLhgp7iqwkZc";
-const NHL_POST_PROCESSING_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit?gid=803887597#gid=803887597`;
+const sheetUrl = (gid: number) =>
+  `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit?gid=${gid}#gid=${gid}`;
+// The tidied "Data NHL/HL - Post Processing" tabs the web app reads and writes.
+const POST_PROCESSING_URL: Record<string, string> = {
+  NHL: sheetUrl(803887597),
+  HL: sheetUrl(374219075),
+};
+// The original tabs they were built from (DATA NHL, DATA HL).
+const ORIGINAL_GID: Record<string, number> = { NHL: 0, HL: 188215245 };
 
 const DEFAULT_CANCER_TYPES: CancerTypeConfig[] = [
   {
     id: "HL",
     label: "HL",
     description: "Hodgkin Lymphoma",
-    csvUrl:
-      "https://docs.google.com/spreadsheets/d/10tlI23LbJ4hiAZpeSygoxqtCu-XQrfxVLhgp7iqwkZc/edit?gid=188215245#gid=188215245",
+    csvUrl: POST_PROCESSING_URL.HL,
   },
   {
     id: "NHL",
     label: "NHL",
     description: "Non-Hodgkin Lymphoma",
-    csvUrl: NHL_POST_PROCESSING_URL,
+    csvUrl: POST_PROCESSING_URL.NHL,
   },
 ];
 
-// NHL now reads and writes the tidied "Data NHL - Post Processing" tab
-// instead of DATA NHL (gid 0); saved module lists still pointing at DATA NHL
-// are moved over.
-function migrateNhlSource(list: CancerTypeConfig[]): CancerTypeConfig[] {
-  return list.map((t) =>
-    t.id === "NHL" && t.csvUrl.includes(SPREADSHEET_ID) && /[?#&]gid=0\b/.test(t.csvUrl)
-      ? { ...t, csvUrl: NHL_POST_PROCESSING_URL }
-      : t,
-  );
+// NHL and HL now read and write their Post Processing tabs instead of DATA
+// NHL / DATA HL; saved module lists still pointing at the original tabs are
+// moved over.
+function migrateToPostProcessing(list: CancerTypeConfig[]): CancerTypeConfig[] {
+  return list.map((t) => {
+    const gid = ORIGINAL_GID[t.id];
+    const pointsAtOriginal =
+      gid !== undefined &&
+      t.csvUrl.includes(SPREADSHEET_ID) &&
+      new RegExp(`[?#&]gid=${gid}\\b`).test(t.csvUrl);
+    return pointsAtOriginal ? { ...t, csvUrl: POST_PROCESSING_URL[t.id] } : t;
+  });
 }
 
 export function loadCancerTypes(): CancerTypeConfig[] {
@@ -44,7 +54,7 @@ export function loadCancerTypes(): CancerTypeConfig[] {
   if (!raw) return DEFAULT_CANCER_TYPES;
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? migrateNhlSource(parsed as CancerTypeConfig[]) : DEFAULT_CANCER_TYPES;
+    return Array.isArray(parsed) ? migrateToPostProcessing(parsed as CancerTypeConfig[]) : DEFAULT_CANCER_TYPES;
   } catch {
     return DEFAULT_CANCER_TYPES;
   }

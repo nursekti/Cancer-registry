@@ -138,7 +138,8 @@ export function PatientDetailView({
   // them from the cell's literal formula (e.g. "=51/(1,7)^2") via the
   // Sheets API, since that's the only place those numbers exist.
   React.useEffect(() => {
-    if (cancerType !== "HL" || !csvUrl) return;
+    // Only DATA HL needs this; the Post Processing tab has BB/TB columns.
+    if (cancerType !== "HL" || !csvUrl || hasSplitLiniColumns(headers)) return;
     let cancelled = false;
     fetchImtFormulas(csvUrl)
       .then((map) => {
@@ -153,7 +154,7 @@ export function PatientDetailView({
     return () => {
       cancelled = true;
     };
-  }, [cancerType, csvUrl, row, key]);
+  }, [cancerType, csvUrl, row, key, headers]);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const [savedMessage, setSavedMessage] = React.useState<string | null>(null);
   const [deleted, setDeleted] = React.useState(false);
